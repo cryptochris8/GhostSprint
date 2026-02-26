@@ -1,0 +1,837 @@
+<!--
+  GhostSprint
+  Game UI: HUD, Lobby, Results, Shop
+-->
+
+<div id="game-ui">
+  <!-- HUD (visible during round) -->
+  <div id="hud" class="panel hidden">
+    <div id="hud-timer" class="hud-item">00:00.00</div>
+    <div id="hud-checkpoint" class="hud-item">Checkpoint 0/8</div>
+    <div id="hud-respawns" class="hud-item">Respawns: 0</div>
+    <div id="hud-modifier" class="hud-modifier">No Modifier</div>
+  </div>
+
+  <!-- Countdown overlay -->
+  <div id="countdown-overlay" class="overlay hidden">
+    <div id="countdown-text" class="countdown-text">15</div>
+    <div id="countdown-label" class="countdown-label">Round starts in...</div>
+  </div>
+
+  <!-- Starting freeze overlay -->
+  <div id="freeze-overlay" class="overlay hidden">
+    <div class="freeze-text">GET READY!</div>
+    <div id="freeze-modifier" class="freeze-modifier"></div>
+    <div id="freeze-timer" class="freeze-timer">3</div>
+  </div>
+
+  <!-- Lobby panel -->
+  <div id="lobby-panel" class="panel">
+    <img src="{{CDN_ASSETS_URL}}/ui/logos/GhostSprint_icon_512x512.png" alt="GhostSprint" class="lobby-logo" />
+    <div class="subtitle">Race your ghost. Beat your best.</div>
+    <div id="lobby-status" class="lobby-status">Waiting for players...</div>
+    <div id="lobby-leaderboard" class="leaderboard"></div>
+    <div class="lobby-buttons">
+      <button id="btn-shop" class="btn" onclick="toggleShop()">SHOP</button>
+      <button id="btn-stats" class="btn btn-secondary" onclick="toggleStats()">STATS</button>
+    </div>
+  </div>
+
+  <!-- Results panel -->
+  <div id="results-panel" class="panel hidden">
+    <h2 class="title">ROUND RESULTS</h2>
+    <div id="results-podium" class="podium"></div>
+    <div id="results-stats" class="results-stats"></div>
+    <div id="results-xp" class="results-xp"></div>
+    <div id="results-next" class="results-next">Next round in...</div>
+  </div>
+
+  <!-- Finished banner -->
+  <div id="finish-banner" class="finish-banner hidden">
+    <div id="finish-time" class="finish-time"></div>
+    <div id="finish-pb" class="finish-pb hidden">NEW PERSONAL BEST!</div>
+  </div>
+
+  <!-- Shop panel -->
+  <div id="shop-panel" class="panel hidden">
+    <h2 class="title">SHOP</h2>
+    <div id="shop-coins" class="shop-coins">Coins: 0</div>
+    <div id="shop-items" class="shop-items"></div>
+    <button class="btn btn-close" onclick="toggleShop()">CLOSE</button>
+  </div>
+
+  <!-- Stats panel -->
+  <div id="stats-panel" class="panel hidden">
+    <h2 class="title">YOUR STATS</h2>
+    <div id="stats-content" class="stats-content"></div>
+    <button class="btn btn-close" onclick="toggleStats()">CLOSE</button>
+  </div>
+</div>
+
+<!-- Mobile controls -->
+<div class="mobile-controls">
+  <a id="mobile-interact-button" class="mobile-button">
+    <img src="{{CDN_ASSETS_URL}}/icons/target.png" />
+  </a>
+  <a id="mobile-jump-button" class="mobile-button">
+    <img src="{{CDN_ASSETS_URL}}/icons/jump.png" />
+  </a>
+</div>
+
+<script>
+  // ── State ─────────────────────────────────────────────────
+  let gameState = 'LOBBY_IDLE';
+  let playerData = null;
+  let cosmeticsData = [];
+  let shopVisible = false;
+  let statsVisible = false;
+
+  // ── DOM refs ──────────────────────────────────────────────
+  const hud = document.getElementById('hud');
+  const hudTimer = document.getElementById('hud-timer');
+  const hudCheckpoint = document.getElementById('hud-checkpoint');
+  const hudRespawns = document.getElementById('hud-respawns');
+  const hudModifier = document.getElementById('hud-modifier');
+  const countdownOverlay = document.getElementById('countdown-overlay');
+  const countdownText = document.getElementById('countdown-text');
+  const countdownLabel = document.getElementById('countdown-label');
+  const freezeOverlay = document.getElementById('freeze-overlay');
+  const freezeModifier = document.getElementById('freeze-modifier');
+  const freezeTimer = document.getElementById('freeze-timer');
+  const lobbyPanel = document.getElementById('lobby-panel');
+  const lobbyStatus = document.getElementById('lobby-status');
+  const lobbyLeaderboard = document.getElementById('lobby-leaderboard');
+  const resultsPanel = document.getElementById('results-panel');
+  const resultsPodium = document.getElementById('results-podium');
+  const resultsStats = document.getElementById('results-stats');
+  const resultsXP = document.getElementById('results-xp');
+  const resultsNext = document.getElementById('results-next');
+  const finishBanner = document.getElementById('finish-banner');
+  const finishTime = document.getElementById('finish-time');
+  const finishPB = document.getElementById('finish-pb');
+  const shopPanel = document.getElementById('shop-panel');
+  const shopCoins = document.getElementById('shop-coins');
+  const shopItems = document.getElementById('shop-items');
+  const statsPanel = document.getElementById('stats-panel');
+  const statsContent = document.getElementById('stats-content');
+
+  // ── Receive data from server ──────────────────────────────
+  hytopia.onData((data) => {
+    switch (data.type) {
+      case 'init':
+        gameState = data.state;
+        playerData = data.playerData;
+        cosmeticsData = data.cosmetics || [];
+        updateUIForState();
+        if (data.leaderboard) renderLeaderboard(data.leaderboard);
+        break;
+
+      case 'stateChange':
+        gameState = data.state;
+        handleStateChange(data);
+        break;
+
+      case 'timerUpdate':
+        handleTimerUpdate(data);
+        break;
+
+      case 'checkpointHit':
+        hudCheckpoint.textContent = `Checkpoint ${data.checkpoint}/${data.total}`;
+        flashElement(hudCheckpoint, 'flash-green');
+        break;
+
+      case 'timerStarted':
+        // Timer now running
+        break;
+
+      case 'finished':
+        showFinishBanner(data);
+        break;
+
+      case 'respawned':
+        hudRespawns.textContent = `Respawns: ${data.respawns}`;
+        flashElement(hudRespawns, 'flash-red');
+        break;
+
+      case 'roundResults':
+        showResults(data);
+        break;
+
+      case 'shopUpdate':
+        if (playerData) {
+          playerData.coins = data.coins;
+          playerData.ownedCosmetics = data.ownedCosmetics;
+        }
+        renderShop();
+        break;
+
+      case 'equipUpdate':
+        if (playerData) {
+          playerData.equippedTrailId = data.equippedTrailId;
+          playerData.equippedFinishEffectId = data.equippedFinishEffectId;
+        }
+        renderShop();
+        break;
+    }
+  });
+
+  // ── State change handler ──────────────────────────────────
+  function handleStateChange(data) {
+    hideAll();
+
+    switch (data.state) {
+      case 'LOBBY_IDLE':
+        lobbyPanel.classList.remove('hidden');
+        lobbyStatus.textContent = 'Waiting for players...';
+        if (data.leaderboard) renderLeaderboard(data.leaderboard);
+        break;
+
+      case 'LOBBY_COUNTDOWN':
+        lobbyPanel.classList.remove('hidden');
+        countdownOverlay.classList.remove('hidden');
+        countdownText.textContent = Math.ceil(data.timer);
+        countdownLabel.textContent = 'Round starts in...';
+        break;
+
+      case 'ROUND_STARTING':
+        freezeOverlay.classList.remove('hidden');
+        freezeModifier.textContent = `Modifier: ${data.modifier}`;
+        freezeTimer.textContent = Math.ceil(data.timer);
+        break;
+
+      case 'ROUND_ACTIVE':
+        hud.classList.remove('hidden');
+        hudModifier.textContent = data.modifier || 'None';
+        hudCheckpoint.textContent = 'Checkpoint 0/8';
+        hudRespawns.textContent = 'Respawns: 0';
+        hudTimer.textContent = '00:00.00';
+        break;
+
+      case 'ROUND_RESULTS':
+        // Results panel populated by 'roundResults' message
+        break;
+    }
+  }
+
+  // ── Timer update handler ──────────────────────────────────
+  function handleTimerUpdate(data) {
+    if (data.state === 'LOBBY_COUNTDOWN') {
+      countdownText.textContent = data.stateTimer;
+    } else if (data.state === 'ROUND_STARTING') {
+      freezeTimer.textContent = data.stateTimer;
+    } else if (data.state === 'ROUND_ACTIVE') {
+      hudTimer.textContent = data.raceFormatted;
+      hudCheckpoint.textContent = `Checkpoint ${data.checkpoint}/${data.totalCheckpoints}`;
+      hudRespawns.textContent = `Respawns: ${data.respawns}`;
+      hudModifier.textContent = data.modifier;
+    } else if (data.state === 'ROUND_RESULTS') {
+      resultsNext.textContent = `Next round in ${data.stateTimer}s`;
+    }
+  }
+
+  // ── Show finish banner ────────────────────────────────────
+  function showFinishBanner(data) {
+    finishBanner.classList.remove('hidden');
+    finishTime.textContent = data.timeFormatted;
+    if (data.isNewPB) {
+      finishPB.classList.remove('hidden');
+    } else {
+      finishPB.classList.add('hidden');
+    }
+    // Auto-hide after 5s
+    setTimeout(() => finishBanner.classList.add('hidden'), 5000);
+  }
+
+  // ── Show results ──────────────────────────────────────────
+  function showResults(data) {
+    hideAll();
+    resultsPanel.classList.remove('hidden');
+
+    // Podium
+    let podiumHtml = '';
+    const medals = ['1st', '2nd', '3rd'];
+    const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
+    if (data.podium) {
+      data.podium.forEach((p, i) => {
+        podiumHtml += `<div class="podium-entry" style="color:${colors[i]}">
+          <span class="podium-medal">${medals[i]}</span>
+          <span class="podium-name">${p.username}</span>
+          <span class="podium-time">${p.timeFormatted}</span>
+        </div>`;
+      });
+    }
+    resultsPodium.innerHTML = podiumHtml;
+
+    // Player stats
+    const s = data.playerStats;
+    resultsStats.innerHTML = `
+      <div>${s.finished ? `Time: ${s.timeFormatted}` : 'DNF'}</div>
+      <div>Respawns: ${s.respawns}</div>
+      ${s.isNewPB ? '<div class="new-pb">NEW PERSONAL BEST!</div>' : ''}
+      ${s.bestTimeFormatted ? `<div>Best: ${s.bestTimeFormatted}</div>` : ''}
+    `;
+
+    // XP
+    let xpHtml = `<div class="xp-total">+${data.xpAwarded} XP</div>`;
+    data.xpReasons.forEach(r => { xpHtml += `<div class="xp-reason">${r}</div>`; });
+    if (data.leveled) {
+      xpHtml += `<div class="level-up">LEVEL UP! Level ${data.newLevel} (+${data.coinsAwarded} coins)</div>`;
+    }
+    resultsXP.innerHTML = xpHtml;
+
+    resultsNext.textContent = `Next round in ${data.nextRoundTimer}s`;
+
+    // Update player data
+    if (playerData) {
+      playerData.xp = (playerData.xp || 0) + data.xpAwarded;
+      playerData.level = data.newLevel;
+      playerData.coins = (playerData.coins || 0) + (data.coinsAwarded || 0);
+    }
+  }
+
+  // ── Leaderboard ───────────────────────────────────────────
+  function renderLeaderboard(entries) {
+    if (!entries || entries.length === 0) {
+      lobbyLeaderboard.innerHTML = '<div class="lb-empty">No times recorded yet</div>';
+      return;
+    }
+    let html = '<div class="lb-title">TOP 10</div>';
+    entries.forEach((e, i) => {
+      const ms = e.timeMs;
+      const formatted = formatTime(ms);
+      html += `<div class="lb-entry">
+        <span class="lb-rank">#${i + 1}</span>
+        <span class="lb-name">${e.username}</span>
+        <span class="lb-time">${formatted}</span>
+      </div>`;
+    });
+    lobbyLeaderboard.innerHTML = html;
+  }
+
+  // ── Shop ──────────────────────────────────────────────────
+  function toggleShop() {
+    shopVisible = !shopVisible;
+    if (shopVisible) {
+      statsVisible = false;
+      statsPanel.classList.add('hidden');
+      shopPanel.classList.remove('hidden');
+      renderShop();
+    } else {
+      shopPanel.classList.add('hidden');
+    }
+  }
+
+  function renderShop() {
+    if (!playerData) return;
+    shopCoins.textContent = `Coins: ${playerData.coins}`;
+
+    let html = '';
+    cosmeticsData.forEach(c => {
+      const owned = playerData.ownedCosmetics && playerData.ownedCosmetics.includes(c.id);
+      const equipped = (c.type === 'trail' && playerData.equippedTrailId === c.id) ||
+                       (c.type === 'finishEffect' && playerData.equippedFinishEffectId === c.id);
+
+      html += `<div class="shop-item">
+        <div class="shop-item-name">${c.name}</div>
+        <div class="shop-item-desc">${c.description}</div>
+        <div class="shop-item-price">${owned ? (equipped ? 'EQUIPPED' : 'OWNED') : `${c.price} coins`}</div>
+        ${!owned ? `<button class="btn btn-buy" onclick="buyCosmetic('${c.id}')">BUY</button>` : ''}
+        ${owned && !equipped ? `<button class="btn btn-equip" onclick="equipCosmetic('${c.id}')">EQUIP</button>` : ''}
+      </div>`;
+    });
+    shopItems.innerHTML = html;
+  }
+
+  function buyCosmetic(id) {
+    hytopia.sendData({ type: 'buyCosmetic', cosmeticId: id });
+  }
+
+  function equipCosmetic(id) {
+    hytopia.sendData({ type: 'equipCosmetic', cosmeticId: id });
+  }
+
+  // ── Stats ─────────────────────────────────────────────────
+  function toggleStats() {
+    statsVisible = !statsVisible;
+    if (statsVisible) {
+      shopVisible = false;
+      shopPanel.classList.add('hidden');
+      statsPanel.classList.remove('hidden');
+      renderStats();
+    } else {
+      statsPanel.classList.add('hidden');
+    }
+  }
+
+  function renderStats() {
+    if (!playerData) {
+      statsContent.innerHTML = '<div>No data available</div>';
+      return;
+    }
+    statsContent.innerHTML = `
+      <div class="stat-row"><span>Level</span><span>${playerData.level}</span></div>
+      <div class="stat-row"><span>XP</span><span>${playerData.xp}</span></div>
+      <div class="stat-row"><span>Wins</span><span>${playerData.wins || 0}</span></div>
+      <div class="stat-row"><span>Coins</span><span>${playerData.coins}</span></div>
+      <div class="stat-row"><span>Best Time</span><span>${playerData.bestTimeFormatted || 'None'}</span></div>
+    `;
+  }
+
+  // ── Helpers ───────────────────────────────────────────────
+  function hideAll() {
+    hud.classList.add('hidden');
+    countdownOverlay.classList.add('hidden');
+    freezeOverlay.classList.add('hidden');
+    lobbyPanel.classList.add('hidden');
+    resultsPanel.classList.add('hidden');
+    finishBanner.classList.add('hidden');
+    shopPanel.classList.add('hidden');
+    statsPanel.classList.add('hidden');
+    shopVisible = false;
+    statsVisible = false;
+  }
+
+  function updateUIForState() {
+    hideAll();
+    switch (gameState) {
+      case 'LOBBY_IDLE':
+      case 'LOBBY_COUNTDOWN':
+        lobbyPanel.classList.remove('hidden');
+        break;
+      case 'ROUND_STARTING':
+        freezeOverlay.classList.remove('hidden');
+        break;
+      case 'ROUND_ACTIVE':
+        hud.classList.remove('hidden');
+        break;
+      case 'ROUND_RESULTS':
+        resultsPanel.classList.remove('hidden');
+        break;
+    }
+  }
+
+  function formatTime(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const millis = Math.floor((ms % 1000) / 10);
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(2, '0')}`;
+  }
+
+  function flashElement(el, className) {
+    el.classList.add(className);
+    setTimeout(() => el.classList.remove(className), 500);
+  }
+
+  // ── Mobile controls ───────────────────────────────────────
+  const mobileInteractButton = document.getElementById('mobile-interact-button');
+  mobileInteractButton.addEventListener('touchstart', e => {
+    e.preventDefault();
+    mobileInteractButton.classList.add('active');
+    hytopia.pressInput('ml', true);
+  });
+  mobileInteractButton.addEventListener('touchend', e => {
+    e.preventDefault();
+    mobileInteractButton.classList.remove('active');
+    hytopia.pressInput('ml', false);
+  });
+
+  const mobileJumpButton = document.getElementById('mobile-jump-button');
+  mobileJumpButton.addEventListener('touchstart', e => {
+    e.preventDefault();
+    mobileJumpButton.classList.add('active');
+    hytopia.pressInput(' ', true);
+  });
+  mobileJumpButton.addEventListener('touchend', e => {
+    e.preventDefault();
+    mobileJumpButton.classList.remove('active');
+    hytopia.pressInput(' ', false);
+  });
+</script>
+
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  #game-ui {
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    color: white;
+    pointer-events: none;
+  }
+
+  #game-ui button, #game-ui .shop-item { pointer-events: auto; }
+
+  .hidden { display: none !important; }
+
+  /* ── HUD ───────────────────────────────────────────────── */
+  #hud {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    background: rgba(0,0,0,0.6);
+    border-radius: 12px;
+    padding: 10px 24px;
+    backdrop-filter: blur(8px);
+    z-index: 100;
+  }
+
+  .hud-item {
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  #hud-timer {
+    font-size: 24px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #00FFAA;
+  }
+
+  .hud-modifier {
+    background: rgba(255,215,0,0.2);
+    color: #FFD700;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* ── Overlays ──────────────────────────────────────────── */
+  .overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.5);
+    z-index: 200;
+  }
+
+  .countdown-text {
+    font-size: 96px;
+    font-weight: 800;
+    color: #FFD700;
+    text-shadow: 0 0 40px rgba(255,215,0,0.5);
+  }
+
+  .countdown-label {
+    font-size: 24px;
+    color: rgba(255,255,255,0.8);
+    margin-top: 8px;
+  }
+
+  .freeze-text {
+    font-size: 48px;
+    font-weight: 800;
+    color: #00FFAA;
+    text-shadow: 0 0 30px rgba(0,255,170,0.5);
+  }
+
+  .freeze-modifier {
+    font-size: 28px;
+    color: #FFD700;
+    margin-top: 12px;
+  }
+
+  .freeze-timer {
+    font-size: 72px;
+    font-weight: 800;
+    color: white;
+    margin-top: 8px;
+  }
+
+  /* ── Panels ────────────────────────────────────────────── */
+  .panel {
+    position: fixed;
+    background: rgba(0,0,0,0.75);
+    border-radius: 16px;
+    padding: 24px;
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+
+  #lobby-panel {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 360px;
+    text-align: center;
+    z-index: 50;
+  }
+
+  #results-panel {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    min-width: 400px;
+    text-align: center;
+    z-index: 150;
+  }
+
+  #shop-panel, #stats-panel {
+    top: 50%;
+    right: 20px;
+    transform: translateY(-50%);
+    width: 320px;
+    max-height: 80vh;
+    overflow-y: auto;
+    z-index: 60;
+    pointer-events: auto;
+  }
+
+  .lobby-logo {
+    width: 180px;
+    height: 180px;
+    border-radius: 20px;
+    margin-bottom: 8px;
+    box-shadow: 0 4px 20px rgba(0, 200, 255, 0.4);
+  }
+
+  .title {
+    font-size: 28px;
+    font-weight: 800;
+    background: linear-gradient(135deg, #FFD700, #FF6B6B);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    font-size: 16px;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 20px;
+  }
+
+  .lobby-status {
+    font-size: 18px;
+    color: #00FFAA;
+    margin-bottom: 16px;
+  }
+
+  /* ── Leaderboard ───────────────────────────────────────── */
+  .leaderboard { margin-bottom: 20px; }
+
+  .lb-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #FFD700;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+
+  .lb-entry {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 8px;
+    font-size: 14px;
+  }
+
+  .lb-rank { color: rgba(255,255,255,0.5); width: 30px; text-align: left; }
+  .lb-name { flex: 1; text-align: left; margin-left: 8px; }
+  .lb-time { color: #00FFAA; font-variant-numeric: tabular-nums; }
+  .lb-empty { color: rgba(255,255,255,0.4); font-size: 14px; }
+
+  /* ── Buttons ───────────────────────────────────────────── */
+  .lobby-buttons { display: flex; gap: 12px; justify-content: center; margin-top: 16px; }
+
+  .btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    background: linear-gradient(135deg, #FFD700, #FF8C00);
+    color: #000;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .btn:hover { transform: scale(1.05); }
+  .btn:active { transform: scale(0.98); }
+
+  .btn-secondary {
+    background: rgba(255,255,255,0.15);
+    color: white;
+  }
+
+  .btn-close {
+    margin-top: 16px;
+    width: 100%;
+    background: rgba(255,255,255,0.15);
+    color: white;
+  }
+
+  .btn-buy {
+    background: linear-gradient(135deg, #00FFAA, #00CC88);
+    color: #000;
+    padding: 6px 16px;
+    font-size: 12px;
+  }
+
+  .btn-equip {
+    background: rgba(100,100,255,0.3);
+    color: #88AAFF;
+    padding: 6px 16px;
+    font-size: 12px;
+  }
+
+  /* ── Results ───────────────────────────────────────────── */
+  .podium { margin-bottom: 16px; }
+
+  .podium-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    margin-bottom: 4px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .podium-medal { width: 40px; text-align: left; }
+  .podium-name { flex: 1; text-align: left; margin-left: 8px; }
+  .podium-time { font-variant-numeric: tabular-nums; }
+
+  .results-stats {
+    margin-bottom: 12px;
+    font-size: 15px;
+  }
+
+  .results-stats > div { margin-bottom: 4px; }
+
+  .new-pb {
+    color: #FFD700;
+    font-weight: 700;
+    font-size: 16px;
+  }
+
+  .results-xp { margin-bottom: 12px; }
+  .xp-total { font-size: 20px; font-weight: 700; color: #00FFAA; margin-bottom: 4px; }
+  .xp-reason { font-size: 13px; color: rgba(255,255,255,0.6); }
+  .level-up { color: #FFD700; font-weight: 700; font-size: 16px; margin-top: 8px; }
+
+  .results-next {
+    font-size: 14px;
+    color: rgba(255,255,255,0.5);
+    margin-top: 12px;
+  }
+
+  /* ── Finish banner ─────────────────────────────────────── */
+  .finish-banner {
+    position: fixed;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 120;
+    animation: bannerIn 0.4s ease-out;
+  }
+
+  .finish-time {
+    font-size: 48px;
+    font-weight: 800;
+    color: #00FFAA;
+    text-shadow: 0 0 30px rgba(0,255,170,0.5);
+  }
+
+  .finish-pb {
+    font-size: 24px;
+    font-weight: 700;
+    color: #FFD700;
+    text-shadow: 0 0 20px rgba(255,215,0,0.5);
+    margin-top: 8px;
+    animation: pulse 0.6s ease-in-out infinite alternate;
+  }
+
+  @keyframes bannerIn {
+    from { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+    to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  }
+
+  @keyframes pulse {
+    from { transform: scale(1); }
+    to { transform: scale(1.1); }
+  }
+
+  /* ── Shop ──────────────────────────────────────────────── */
+  .shop-coins {
+    font-size: 18px;
+    font-weight: 700;
+    color: #FFD700;
+    margin-bottom: 16px;
+  }
+
+  .shop-item {
+    background: rgba(255,255,255,0.05);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+
+  .shop-item-name { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+  .shop-item-desc { font-size: 12px; color: rgba(255,255,255,0.5); margin-bottom: 6px; }
+  .shop-item-price { font-size: 13px; color: #FFD700; margin-bottom: 6px; }
+
+  /* ── Stats ─────────────────────────────────────────────── */
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    font-size: 15px;
+  }
+
+  .stat-row span:first-child { color: rgba(255,255,255,0.6); }
+  .stat-row span:last-child { font-weight: 600; }
+
+  /* ── Flash animations ──────────────────────────────────── */
+  .flash-green { animation: flashGreen 0.5s; }
+  .flash-red { animation: flashRed 0.5s; }
+
+  @keyframes flashGreen {
+    0% { color: #00FF00; text-shadow: 0 0 10px #00FF00; }
+    100% { color: white; text-shadow: none; }
+  }
+
+  @keyframes flashRed {
+    0% { color: #FF4444; text-shadow: 0 0 10px #FF4444; }
+    100% { color: white; text-shadow: none; }
+  }
+
+  /* ── Mobile ────────────────────────────────────────────── */
+  .mobile-controls { display: none; }
+
+  body.mobile .mobile-controls {
+    display: flex;
+    gap: 14px;
+    position: fixed;
+    bottom: 40px;
+    right: 40px;
+  }
+
+  .mobile-button {
+    background-color: rgba(0,0,0,0.5);
+    border-radius: 50%;
+    align-items: center;
+    justify-content: center;
+    display: flex;
+    width: 50px;
+    height: 50px;
+    transition: all 0.15s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    pointer-events: auto !important;
+  }
+
+  .mobile-button img { width: 22px; height: 22px; }
+  .mobile-button.active { transform: scale(0.92); background-color: rgba(0,0,0,0.75); }
+</style>

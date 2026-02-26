@@ -1,0 +1,7 @@
+node_modules/
+index.mjs
+.cursor/
+.mcp.json
+nul
+dev/
+assets/blocks/.atlas/
