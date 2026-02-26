@@ -13,6 +13,8 @@ export class ModifierSystem {
   private _world: World | null = null;
   private _originalGravity = { x: 0, y: -32, z: 0 };
   private _doubleJumpUsed: Map<string, boolean> = new Map();
+  private _blinkCooldowns: Map<string, number> = new Map();
+  private _blinkCooldownMs = 1500;
 
   get activeModifier(): ModifierDef | null { return this._activeModifier; }
   get activeModifierLabel(): string { return this._activeModifier?.label ?? 'None'; }
@@ -104,6 +106,7 @@ export class ModifierSystem {
 
     this._activeModifier = null;
     this._doubleJumpUsed.clear();
+    this._blinkCooldowns.clear();
   }
 
   /** Check if double jump is available for a player (call from tick) */
@@ -130,8 +133,12 @@ export class ModifierSystem {
   /** Apply a blink teleport for the player (call from tick) */
   tryBlink(playerId: string, entity: any, input: any): boolean {
     if (this._activeModifier?.id !== 'blink_pads') return false;
-    // Blink on 'f' key press
     if (!input.f) return false;
+
+    const now = Date.now();
+    const lastBlink = this._blinkCooldowns.get(playerId) ?? 0;
+    if (now - lastBlink < this._blinkCooldownMs) return false;
+    this._blinkCooldowns.set(playerId, now);
 
     const pos = entity.position;
     if (!pos) return false;

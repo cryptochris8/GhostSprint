@@ -70,8 +70,8 @@
 
 <!-- Mobile controls -->
 <div class="mobile-controls">
-  <a id="mobile-interact-button" class="mobile-button">
-    <img src="{{CDN_ASSETS_URL}}/icons/target.png" />
+  <a id="mobile-blink-button" class="mobile-button mobile-blink-btn">
+    BLINK
   </a>
   <a id="mobile-jump-button" class="mobile-button">
     <img src="{{CDN_ASSETS_URL}}/icons/jump.png" />
@@ -424,16 +424,16 @@
   }
 
   // ── Mobile controls ───────────────────────────────────────
-  const mobileInteractButton = document.getElementById('mobile-interact-button');
-  mobileInteractButton.addEventListener('touchstart', e => {
+  const mobileBlinkButton = document.getElementById('mobile-blink-button');
+  mobileBlinkButton.addEventListener('touchstart', e => {
     e.preventDefault();
-    mobileInteractButton.classList.add('active');
-    hytopia.pressInput('ml', true);
+    mobileBlinkButton.classList.add('active');
+    hytopia.pressInput('f', true);
   });
-  mobileInteractButton.addEventListener('touchend', e => {
+  mobileBlinkButton.addEventListener('touchend', e => {
     e.preventDefault();
-    mobileInteractButton.classList.remove('active');
-    hytopia.pressInput('ml', false);
+    mobileBlinkButton.classList.remove('active');
+    hytopia.pressInput('f', false);
   });
 
   const mobileJumpButton = document.getElementById('mobile-jump-button');
@@ -834,4 +834,12 @@
 
   .mobile-button img { width: 22px; height: 22px; }
   .mobile-button.active { transform: scale(0.92); background-color: rgba(0,0,0,0.75); }
+
+  .mobile-blink-btn {
+    font-size: 11px;
+    font-weight: 700;
+    color: #00CCFF;
+    letter-spacing: 1px;
+    user-select: none;
+  }
 </style>
