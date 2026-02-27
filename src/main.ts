@@ -60,6 +60,7 @@ const trailEmitters: Map<string, ParticleEmitter> = new Map();
 startServer(world => {
   // ── Load map & world settings ────────────────────────────
   world.loadMap(worldMap);
+  world.setSkyboxUri('skyboxes/ghostsprint');
   world.setAmbientLightIntensity(1.0);
   world.setDirectionalLightIntensity(1.0);
 
