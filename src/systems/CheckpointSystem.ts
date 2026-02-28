@@ -4,13 +4,8 @@
  */
 
 import type { World, Player, Entity } from 'hytopia';
-import {
-  CHECKPOINT_POSITIONS,
-  START_PAD_POSITION,
-  FINISH_GATE_POSITION,
-  OUT_OF_BOUNDS_Y,
-  DEBUG_MODE,
-} from '../config/gameConfig';
+import type { CourseDefinition } from '../config/courseConfig';
+import { DEBUG_MODE } from '../config/gameConfig';
 
 export interface PlayerCheckpointData {
   /** Which checkpoints have been reached (0-indexed) */
@@ -36,8 +31,14 @@ export class CheckpointSystem {
   private _onCheckpoint: CheckpointCallback[] = [];
   private _onFinish: FinishCallback[] = [];
   private _onRespawn: RespawnCallback[] = [];
+  private _course: CourseDefinition | null = null;
 
-  get totalCheckpoints(): number { return CHECKPOINT_POSITIONS.length; }
+  get totalCheckpoints(): number { return this._course?.checkpointPositions.length ?? 0; }
+
+  /** Set the active course (call before each round) */
+  setCourse(course: CourseDefinition): void {
+    this._course = course;
+  }
 
   onStart(cb: StartCallback): void { this._onStart.push(cb); }
   onCheckpoint(cb: CheckpointCallback): void { this._onCheckpoint.push(cb); }
@@ -46,12 +47,13 @@ export class CheckpointSystem {
 
   /** Initialize/reset tracking for a player at round start */
   resetPlayer(playerId: string): void {
+    const startPos = this._course!.startPadPosition;
     this._playerData.set(playerId, {
       nextCheckpoint: 0,
       started: false,
       finished: false,
       respawns: 0,
-      lastCheckpointPosition: { ...START_PAD_POSITION, y: START_PAD_POSITION.y + 2 },
+      lastCheckpointPosition: { x: startPos.x, y: startPos.y + 2, z: startPos.z },
     });
   }
 
@@ -70,7 +72,7 @@ export class CheckpointSystem {
     const data = this._playerData.get(player.id);
     if (!data || data.started) return;
 
-    if (this._isNear(pos, START_PAD_POSITION, 3)) {
+    if (this._isNear(pos, this._course!.startPadPosition, this._course!.startTriggerRadius)) {
       data.started = true;
       if (DEBUG_MODE) console.log(`[Checkpoint] ${player.username} crossed start pad`);
       for (const cb of this._onStart) cb(player);
@@ -82,14 +84,15 @@ export class CheckpointSystem {
     const data = this._playerData.get(player.id);
     if (!data || !data.started || data.finished) return;
 
+    const cpPositions = this._course!.checkpointPositions;
     const idx = data.nextCheckpoint;
-    if (idx >= CHECKPOINT_POSITIONS.length) return;
+    if (idx >= cpPositions.length) return;
 
-    const cp = CHECKPOINT_POSITIONS[idx];
-    if (this._isNear(pos, cp, 2.5)) {
+    const cp = cpPositions[idx];
+    if (this._isNear(pos, cp, this._course!.checkpointTriggerRadius)) {
       data.nextCheckpoint = idx + 1;
       data.lastCheckpointPosition = { x: cp.x, y: cp.y + 2, z: cp.z };
-      if (DEBUG_MODE) console.log(`[Checkpoint] ${player.username} hit checkpoint ${idx + 1}/${CHECKPOINT_POSITIONS.length}`);
+      if (DEBUG_MODE) console.log(`[Checkpoint] ${player.username} hit checkpoint ${idx + 1}/${cpPositions.length}`);
       for (const cb of this._onCheckpoint) cb(player, idx);
     }
   }
@@ -100,9 +103,9 @@ export class CheckpointSystem {
     if (!data || !data.started || data.finished) return;
 
     // Must have hit all checkpoints in order
-    if (data.nextCheckpoint < CHECKPOINT_POSITIONS.length) return;
+    if (data.nextCheckpoint < this._course!.checkpointPositions.length) return;
 
-    if (this._isNear(pos, FINISH_GATE_POSITION, 3.5)) {
+    if (this._isNear(pos, this._course!.finishGatePosition, this._course!.finishTriggerRadius)) {
       data.finished = true;
       if (DEBUG_MODE) console.log(`[Checkpoint] ${player.username} FINISHED! Respawns: ${data.respawns}`);
       for (const cb of this._onFinish) cb(player, data.respawns);
@@ -114,7 +117,7 @@ export class CheckpointSystem {
     const data = this._playerData.get(player.id);
     if (!data) return false;
 
-    if (pos.y < OUT_OF_BOUNDS_Y) {
+    if (pos.y < this._course!.outOfBoundsY) {
       data.respawns++;
       if (DEBUG_MODE) console.log(`[Checkpoint] ${player.username} fell OOB, respawn #${data.respawns}`);
       for (const cb of this._onRespawn) cb(player);
@@ -126,7 +129,9 @@ export class CheckpointSystem {
   /** Get respawn position for a player */
   getRespawnPosition(playerId: string): { x: number; y: number; z: number } {
     const data = this._playerData.get(playerId);
-    return data?.lastCheckpointPosition ?? { ...START_PAD_POSITION, y: START_PAD_POSITION.y + 2 };
+    if (data) return data.lastCheckpointPosition;
+    const startPos = this._course!.startPadPosition;
+    return { x: startPos.x, y: startPos.y + 2, z: startPos.z };
   }
 
   /** Reset all players (new round) */

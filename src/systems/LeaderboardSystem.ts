@@ -1,10 +1,10 @@
 /**
- * Global leaderboard — Course 1 best times.
+ * Global leaderboard — per-course best times.
  * Uses PersistenceManager.instance for global data.
  */
 
 import { PersistenceManager } from 'hytopia';
-import { COURSE_ID, DEBUG_MODE } from '../config/gameConfig';
+import { DEBUG_MODE } from '../config/gameConfig';
 
 export interface LeaderboardEntry {
   playerId: string;
@@ -12,26 +12,35 @@ export interface LeaderboardEntry {
   timeMs: number;
 }
 
-const LEADERBOARD_KEY = `leaderboard_${COURSE_ID}`;
 const MAX_ENTRIES = 50; // store top 50, display top 10
 
 export class LeaderboardSystem {
   private _entries: LeaderboardEntry[] = [];
   private _loaded = false;
+  private _courseId = 'course1';
 
   get entries(): LeaderboardEntry[] { return this._entries; }
   get top10(): LeaderboardEntry[] { return this._entries.slice(0, 10); }
 
+  private get _leaderboardKey(): string { return `leaderboard_${this._courseId}`; }
+
+  /** Set the active course ID. Clears current entries so load() can refresh. */
+  setCourseId(id: string): void {
+    this._courseId = id;
+    this._entries = [];
+    this._loaded = false;
+  }
+
   /** Load leaderboard from global persistence */
   async load(): Promise<void> {
     try {
-      const data = await PersistenceManager.instance.getGlobalData(LEADERBOARD_KEY);
+      const data = await PersistenceManager.instance.getGlobalData(this._leaderboardKey);
       if (data?.entries && Array.isArray(data.entries)) {
         this._entries = data.entries as LeaderboardEntry[];
         this._entries.sort((a, b) => a.timeMs - b.timeMs);
       }
       this._loaded = true;
-      if (DEBUG_MODE) console.log(`[Leaderboard] Loaded ${this._entries.length} entries`);
+      if (DEBUG_MODE) console.log(`[Leaderboard] Loaded ${this._entries.length} entries for ${this._courseId}`);
     } catch (err) {
       console.error('[Leaderboard] Failed to load:', err);
       this._loaded = true;
@@ -58,7 +67,7 @@ export class LeaderboardSystem {
 
     // Persist
     try {
-      await PersistenceManager.instance.setGlobalData(LEADERBOARD_KEY, {
+      await PersistenceManager.instance.setGlobalData(this._leaderboardKey, {
         entries: this._entries,
       });
       if (DEBUG_MODE) console.log(`[Leaderboard] Updated: ${username} rank #${playerRank} (${timeMs}ms)`);

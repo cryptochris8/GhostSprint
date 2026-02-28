@@ -4,7 +4,7 @@
  */
 
 import type { Player } from 'hytopia';
-import { COURSE_ID, XP_PER_LEVEL, COINS_PER_LEVEL_UP, DEBUG_MODE } from '../config/gameConfig';
+import { XP_PER_LEVEL, COINS_PER_LEVEL_UP, DEBUG_MODE } from '../config/gameConfig';
 import type { GhostRecording } from './GhostSystem';
 
 export interface PlayerData {
@@ -37,11 +37,17 @@ const DEFAULT_DATA: PlayerData = {
 
 export class PersistenceSystem {
   private _cache: Map<string, PlayerData> = new Map();
+  private _activeCourseId = 'course1';
+
+  /** Set the active course ID (call when course changes) */
+  setCourseId(id: string): void {
+    this._activeCourseId = id;
+  }
 
   /** Load player data from persistence (call on join) */
   load(player: Player): PlayerData {
     const raw = player.getPersistedData() as Record<string, unknown> | undefined;
-    const stored = raw?.[COURSE_ID] as Partial<PlayerData> | undefined;
+    const stored = raw?.[this._activeCourseId] as Partial<PlayerData> | undefined;
 
     const data: PlayerData = {
       ...DEFAULT_DATA,
@@ -63,7 +69,7 @@ export class PersistenceSystem {
     const data = this._cache.get(player.id);
     if (!data) return;
 
-    player.setPersistedData({ [COURSE_ID]: data });
+    player.setPersistedData({ [this._activeCourseId]: data });
     if (DEBUG_MODE) console.log(`[Persistence] Saved data for ${player.username}`);
   }
 

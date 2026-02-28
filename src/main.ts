@@ -22,13 +22,11 @@ import worldMap from '../assets/map.json';
 
 // Config
 import {
-  LOBBY_SPAWN,
-  START_PAD_POSITION,
-  FINISH_GATE_POSITION,
-  CHECKPOINT_POSITIONS,
   DEBUG_MODE,
   ROUND_DURATION_SEC,
 } from './config/gameConfig';
+import { COURSES } from './config/courseConfig';
+import type { CourseDefinition } from './config/courseConfig';
 
 // Systems
 import { StateMachine, GameState } from './systems/StateMachine';
@@ -39,6 +37,7 @@ import { GhostSystem } from './systems/GhostSystem';
 import { PersistenceSystem } from './systems/PersistenceSystem';
 import { LeaderboardSystem } from './systems/LeaderboardSystem';
 import { XPSystem } from './systems/XPSystem';
+import { CourseManager } from './systems/CourseManager';
 import type { RoundResult } from './systems/XPSystem';
 
 // Data
@@ -56,6 +55,9 @@ const activePlayers: Map<string, ActivePlayer> = new Map();
 
 // ── Trail particle emitters per player ───────────────────────
 const trailEmitters: Map<string, ParticleEmitter> = new Map();
+
+// ── Course marker entities (for despawn/respawn between rounds) ──
+let courseMarkerEntities: Entity[] = [];
 
 startServer(world => {
   // ── Load map & world settings ────────────────────────────
@@ -77,6 +79,13 @@ startServer(world => {
   const persistenceSystem = new PersistenceSystem();
   const leaderboardSystem = new LeaderboardSystem();
   const xpSystem = new XPSystem(persistenceSystem);
+  const courseManager = new CourseManager();
+
+  // Initialize systems with the first course
+  const initialCourse = courseManager.activeCourse;
+  checkpointSystem.setCourse(initialCourse);
+  persistenceSystem.setCourseId(initialCourse.id);
+  leaderboardSystem.setCourseId(initialCourse.id);
 
   // Load global leaderboard
   leaderboardSystem.load();
@@ -92,8 +101,8 @@ startServer(world => {
     }));
   }
 
-  // ── Spawn course markers (visual) ───────────────────────
-  spawnCourseMarkers(world);
+  // ── Spawn initial course markers (visual) ─────────────────
+  spawnCourseMarkers(world, courseManager.activeCourse);
 
   // ── State machine transitions ────────────────────────────
   stateMachine.onStateChange((prev, next) => {
@@ -104,7 +113,12 @@ startServer(world => {
         handleLobbyIdle(world);
         break;
       case GameState.LOBBY_COUNTDOWN:
-        broadcastUI({ type: 'stateChange', state: 'LOBBY_COUNTDOWN', timer: stateMachine.stateTimer });
+        broadcastUI({
+          type: 'stateChange',
+          state: 'LOBBY_COUNTDOWN',
+          timer: stateMachine.stateTimer,
+          courseName: courseManager.courseName,
+        });
         break;
       case GameState.ROUND_STARTING:
         handleRoundStarting(world);
@@ -200,10 +214,11 @@ startServer(world => {
       name: player.username,
     });
 
-    playerEntity.spawn(world, LOBBY_SPAWN);
+    playerEntity.spawn(world, courseManager.activeCourse.lobbySpawn);
     player.ui.load('ui/index.html');
 
-    // Load persistence
+    // Load persistence for current course
+    persistenceSystem.setCourseId(courseManager.courseId);
     const pData = persistenceSystem.load(player);
 
     activePlayers.set(player.id, {
@@ -221,6 +236,8 @@ startServer(world => {
       state: stateMachine.state,
       timer: stateMachine.stateTimer,
       leaderboard: leaderboardSystem.top10,
+      courseName: courseManager.courseName,
+      totalCheckpoints: checkpointSystem.totalCheckpoints,
       playerData: {
         xp: pData.xp,
         level: pData.level,
@@ -242,6 +259,7 @@ startServer(world => {
     });
 
     world.chatManager.sendPlayerMessage(player, 'Welcome to GhostSprint!', '00FF00');
+    world.chatManager.sendPlayerMessage(player, `Course: ${courseManager.courseName}`, '00CCFF');
     world.chatManager.sendPlayerMessage(player, 'Race through checkpoints to the finish!');
   });
 
@@ -268,6 +286,8 @@ startServer(world => {
       state: stateMachine.state,
       timer: stateMachine.stateTimer,
       leaderboard: leaderboardSystem.top10,
+      courseName: courseManager.courseName,
+      totalCheckpoints: checkpointSystem.totalCheckpoints,
       playerData: pData ? {
         xp: pData.xp,
         level: pData.level,
@@ -386,11 +406,27 @@ startServer(world => {
     ghostSystem.cancelAllRecordings();
     removeAllTrails();
 
+    // Advance to next course
+    const nextCourse = courseManager.advanceCourse();
+    checkpointSystem.setCourse(nextCourse);
+    persistenceSystem.setCourseId(nextCourse.id);
+    leaderboardSystem.setCourseId(nextCourse.id);
+    leaderboardSystem.load();
+
+    // Despawn old markers, spawn new ones
+    despawnCourseMarkers();
+    spawnCourseMarkers(world, nextCourse);
+
+    // Reload persistence for all connected players on the new course
+    for (const [, ap] of activePlayers) {
+      persistenceSystem.load(ap.player);
+    }
+
     // Teleport all players to lobby
     for (const [, ap] of activePlayers) {
       ap.finishTimeMs = null;
       ap.isNewPB = false;
-      ap.entity.setPosition(LOBBY_SPAWN);
+      ap.entity.setPosition(nextCourse.lobbySpawn);
       ap.entity.setLinearVelocity({ x: 0, y: 0, z: 0 });
 
       // Restore controller defaults
@@ -405,12 +441,22 @@ startServer(world => {
       type: 'stateChange',
       state: 'LOBBY_IDLE',
       leaderboard: leaderboardSystem.top10,
+      courseName: courseManager.courseName,
+      nextCourseName: courseManager.nextCourse().name,
+      totalCheckpoints: checkpointSystem.totalCheckpoints,
     });
   }
 
   function handleRoundStarting(world: World) {
-    // Select modifier
-    const modifier = modifierSystem.selectRandom();
+    const course = courseManager.activeCourse;
+
+    // Select modifier based on course mode
+    let modifier;
+    if (course.modifierMode === 'fixed' && course.fixedModifierId) {
+      modifier = modifierSystem.selectFixed(course.fixedModifierId);
+    } else {
+      modifier = modifierSystem.selectRandom();
+    }
 
     // Reset checkpoints for all players
     for (const [playerId, ap] of activePlayers) {
@@ -419,7 +465,8 @@ startServer(world => {
       ap.isNewPB = false;
 
       // Teleport to start pad
-      ap.entity.setPosition({ ...START_PAD_POSITION, y: START_PAD_POSITION.y + 2 });
+      const startPos = course.startPadPosition;
+      ap.entity.setPosition({ x: startPos.x, y: startPos.y + 2, z: startPos.z });
       ap.entity.setLinearVelocity({ x: 0, y: 0, z: 0 });
 
       // Spawn personal ghost if they have one
@@ -434,8 +481,11 @@ startServer(world => {
       state: 'ROUND_STARTING',
       timer: stateMachine.stateTimer,
       modifier: modifier.label,
+      courseName: courseManager.courseName,
+      totalCheckpoints: checkpointSystem.totalCheckpoints,
     });
 
+    world.chatManager.sendBroadcastMessage(`Course: ${courseManager.courseName}`, '00CCFF');
     world.chatManager.sendBroadcastMessage(`Round modifier: ${modifier.label}!`, 'FFD700');
   }
 
@@ -457,6 +507,8 @@ startServer(world => {
       state: 'ROUND_ACTIVE',
       timer: ROUND_DURATION_SEC,
       modifier: modifierSystem.activeModifierLabel,
+      courseName: courseManager.courseName,
+      totalCheckpoints: checkpointSystem.totalCheckpoints,
     });
   }
 
@@ -534,6 +586,8 @@ startServer(world => {
         leveled: award.leveled,
         newLevel: award.newLevel,
         coinsAwarded: award.coinsAwarded,
+        courseName: courseManager.courseName,
+        nextCourseName: courseManager.nextCourse().name,
         playerStats: {
           finished: ap.finishTimeMs !== null,
           timeMs: ap.finishTimeMs,
@@ -549,7 +603,7 @@ startServer(world => {
 
     // Announce podium
     if (podium.length > 0) {
-      world.chatManager.sendBroadcastMessage('--- ROUND RESULTS ---', 'FFD700');
+      world.chatManager.sendBroadcastMessage(`--- ${courseManager.courseName} RESULTS ---`, 'FFD700');
       for (const p of podium) {
         const medal = p.placement === 1 ? '1st' : p.placement === 2 ? '2nd' : '3rd';
         world.chatManager.sendBroadcastMessage(
@@ -678,78 +732,107 @@ startServer(world => {
         totalCheckpoints: checkpointSystem.totalCheckpoints,
         respawns: cpData?.respawns ?? 0,
         modifier: modifierSystem.activeModifierLabel,
+        courseName: courseManager.courseName,
       });
     }
   }
 
   // ── Course visual markers ────────────────────────────────
 
-  function spawnCourseMarkers(world: World) {
-    // Start pad — sensor-only (no visual block entity, the map blocks are the visual)
+  function spawnCourseMarkers(world: World, course: CourseDefinition) {
+    // Start pad
+    const startHalf = {
+      x: course.startPadSize.x / 2,
+      y: course.startPadSize.y / 2,
+      z: course.startPadSize.z / 2,
+    };
     const startEntity = new Entity({
       name: 'start_pad',
       blockTextureUri: 'blocks/lime-concrete.png',
-      blockHalfExtents: { x: 3, y: 0.5, z: 3 },
+      blockHalfExtents: startHalf,
       opacity: 0.4,
       rigidBodyOptions: {
         type: RigidBodyType.FIXED,
         colliders: [{
           shape: ColliderShape.BLOCK,
-          halfExtents: { x: 3, y: 0.5, z: 3 },
+          halfExtents: startHalf,
           isSensor: true,
         }],
       },
     });
-    startEntity.spawn(world, START_PAD_POSITION);
+    startEntity.spawn(world, course.startPadPosition);
+    courseMarkerEntities.push(startEntity);
 
     // Finish gate
+    const finishHalf = {
+      x: course.finishGateSize.x / 2,
+      y: course.finishGateSize.y / 2,
+      z: course.finishGateSize.z / 2,
+    };
     const finishEntity = new Entity({
       name: 'finish_gate',
       blockTextureUri: 'blocks/gold-block.png',
-      blockHalfExtents: { x: 3, y: 3, z: 1 },
+      blockHalfExtents: finishHalf,
       opacity: 0.4,
       rigidBodyOptions: {
         type: RigidBodyType.FIXED,
         colliders: [{
           shape: ColliderShape.BLOCK,
-          halfExtents: { x: 3, y: 3, z: 1 },
+          halfExtents: finishHalf,
           isSensor: true,
         }],
       },
     });
-    finishEntity.spawn(world, FINISH_GATE_POSITION);
+    finishEntity.spawn(world, course.finishGatePosition);
+    courseMarkerEntities.push(finishEntity);
 
-    // Checkpoint markers — use colored glass blocks matching map beacon colors
+    // Checkpoint markers
     const cpTextures = [
-      'blocks/glass-aqua.png',       // CP 1
-      'blocks/glass-lime.png',       // CP 2
-      'blocks/glass-yellow.png',     // CP 3
-      'blocks/glass-orange.png',     // CP 4
-      'blocks/glass-pink.png',       // CP 5
-      'blocks/glass-magenta.png',    // CP 6
-      'blocks/glass-purple.png',     // CP 7
-      'blocks/glass-light-blue.png', // CP 8
+      'blocks/glass-aqua.png',
+      'blocks/glass-lime.png',
+      'blocks/glass-yellow.png',
+      'blocks/glass-orange.png',
+      'blocks/glass-pink.png',
+      'blocks/glass-magenta.png',
+      'blocks/glass-purple.png',
+      'blocks/glass-light-blue.png',
+      'blocks/glass-aqua.png',
+      'blocks/glass-lime.png',
     ];
 
-    CHECKPOINT_POSITIONS.forEach((pos, i) => {
+    const cpHalf = {
+      x: course.checkpointSize.x / 2,
+      y: course.checkpointSize.y / 2,
+      z: course.checkpointSize.z / 2,
+    };
+
+    course.checkpointPositions.forEach((pos, i) => {
       const cpEntity = new Entity({
         name: `checkpoint_${i}`,
-        blockTextureUri: cpTextures[i] || 'blocks/glass.png',
-        blockHalfExtents: { x: 2, y: 2, z: 2 },
+        blockTextureUri: cpTextures[i % cpTextures.length],
+        blockHalfExtents: cpHalf,
         opacity: 0.3,
         rigidBodyOptions: {
           type: RigidBodyType.FIXED,
           colliders: [{
             shape: ColliderShape.BLOCK,
-            halfExtents: { x: 2, y: 2, z: 2 },
+            halfExtents: cpHalf,
             isSensor: true,
           }],
         },
       });
       cpEntity.spawn(world, pos);
+      courseMarkerEntities.push(cpEntity);
     });
 
-    if (DEBUG_MODE) console.log(`[Main] Spawned course markers: start, finish, ${CHECKPOINT_POSITIONS.length} checkpoints`);
+    if (DEBUG_MODE) console.log(`[Main] Spawned course markers for ${course.name}: start, finish, ${course.checkpointPositions.length} checkpoints`);
+  }
+
+  function despawnCourseMarkers() {
+    for (const entity of courseMarkerEntities) {
+      if (entity.isSpawned) entity.despawn();
+    }
+    courseMarkerEntities = [];
   }
 
   // ── Chat commands ────────────────────────────────────────
@@ -757,7 +840,7 @@ startServer(world => {
   world.chatManager.registerCommand('/stats', (player) => {
     const pData = persistenceSystem.get(player.id);
     if (!pData) return;
-    world.chatManager.sendPlayerMessage(player, `--- Your Stats ---`, 'FFD700');
+    world.chatManager.sendPlayerMessage(player, `--- Your Stats (${courseManager.courseName}) ---`, 'FFD700');
     world.chatManager.sendPlayerMessage(player, `Level: ${pData.level} | XP: ${pData.xp}`);
     world.chatManager.sendPlayerMessage(player, `Wins: ${pData.wins} | Podiums: ${pData.podiums}`);
     world.chatManager.sendPlayerMessage(player, `Best Time: ${pData.bestTimeMs ? TimerSystem.formatTime(pData.bestTimeMs) : 'None'}`);
@@ -766,7 +849,7 @@ startServer(world => {
 
   world.chatManager.registerCommand('/lb', (player) => {
     const top = leaderboardSystem.top10;
-    world.chatManager.sendPlayerMessage(player, `--- Leaderboard ---`, 'FFD700');
+    world.chatManager.sendPlayerMessage(player, `--- Leaderboard (${courseManager.courseName}) ---`, 'FFD700');
     if (top.length === 0) {
       world.chatManager.sendPlayerMessage(player, 'No times recorded yet!');
       return;

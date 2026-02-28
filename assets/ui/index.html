@@ -6,6 +6,7 @@
 <div id="game-ui">
   <!-- HUD (visible during round) -->
   <div id="hud" class="panel hidden">
+    <div id="hud-course" class="hud-course">Neon Gauntlet</div>
     <div id="hud-timer" class="hud-item">00:00.00</div>
     <div id="hud-checkpoint" class="hud-item">Checkpoint 0/8</div>
     <div id="hud-respawns" class="hud-item">Respawns: 0</div>
@@ -21,6 +22,7 @@
   <!-- Starting freeze overlay -->
   <div id="freeze-overlay" class="overlay hidden">
     <div class="freeze-text">GET READY!</div>
+    <div id="freeze-course" class="freeze-course"></div>
     <div id="freeze-modifier" class="freeze-modifier"></div>
     <div id="freeze-timer" class="freeze-timer">3</div>
   </div>
@@ -29,6 +31,7 @@
   <div id="lobby-panel" class="panel">
     <img src="{{CDN_ASSETS_URL}}/ui/logos/GhostSprint_icon_512x512.png" alt="GhostSprint" class="lobby-logo" />
     <div class="subtitle">Race your ghost. Beat your best.</div>
+    <div id="lobby-course-info" class="lobby-course-info"></div>
     <div id="lobby-status" class="lobby-status">Waiting for players...</div>
     <div id="lobby-leaderboard" class="leaderboard"></div>
     <div class="lobby-buttons">
@@ -40,6 +43,7 @@
   <!-- Results panel -->
   <div id="results-panel" class="panel hidden">
     <h2 class="title">ROUND RESULTS</h2>
+    <div id="results-course" class="results-course"></div>
     <div id="results-podium" class="podium"></div>
     <div id="results-stats" class="results-stats"></div>
     <div id="results-xp" class="results-xp"></div>
@@ -85,9 +89,12 @@
   let cosmeticsData = [];
   let shopVisible = false;
   let statsVisible = false;
+  let currentCourseName = '';
+  let currentTotalCheckpoints = 8;
 
   // ── DOM refs ──────────────────────────────────────────────
   const hud = document.getElementById('hud');
+  const hudCourse = document.getElementById('hud-course');
   const hudTimer = document.getElementById('hud-timer');
   const hudCheckpoint = document.getElementById('hud-checkpoint');
   const hudRespawns = document.getElementById('hud-respawns');
@@ -96,12 +103,15 @@
   const countdownText = document.getElementById('countdown-text');
   const countdownLabel = document.getElementById('countdown-label');
   const freezeOverlay = document.getElementById('freeze-overlay');
+  const freezeCourse = document.getElementById('freeze-course');
   const freezeModifier = document.getElementById('freeze-modifier');
   const freezeTimer = document.getElementById('freeze-timer');
   const lobbyPanel = document.getElementById('lobby-panel');
+  const lobbyCourseInfo = document.getElementById('lobby-course-info');
   const lobbyStatus = document.getElementById('lobby-status');
   const lobbyLeaderboard = document.getElementById('lobby-leaderboard');
   const resultsPanel = document.getElementById('results-panel');
+  const resultsCourse = document.getElementById('results-course');
   const resultsPodium = document.getElementById('results-podium');
   const resultsStats = document.getElementById('results-stats');
   const resultsXP = document.getElementById('results-xp');
@@ -122,12 +132,16 @@
         gameState = data.state;
         playerData = data.playerData;
         cosmeticsData = data.cosmetics || [];
+        if (data.courseName) currentCourseName = data.courseName;
+        if (data.totalCheckpoints) currentTotalCheckpoints = data.totalCheckpoints;
         updateUIForState();
         if (data.leaderboard) renderLeaderboard(data.leaderboard);
         break;
 
       case 'stateChange':
         gameState = data.state;
+        if (data.courseName) currentCourseName = data.courseName;
+        if (data.totalCheckpoints) currentTotalCheckpoints = data.totalCheckpoints;
         handleStateChange(data);
         break;
 
@@ -183,6 +197,9 @@
       case 'LOBBY_IDLE':
         lobbyPanel.classList.remove('hidden');
         lobbyStatus.textContent = 'Waiting for players...';
+        if (data.courseName) {
+          lobbyCourseInfo.textContent = `Next Course: ${data.nextCourseName || data.courseName}`;
+        }
         if (data.leaderboard) renderLeaderboard(data.leaderboard);
         break;
 
@@ -191,18 +208,23 @@
         countdownOverlay.classList.remove('hidden');
         countdownText.textContent = Math.ceil(data.timer);
         countdownLabel.textContent = 'Round starts in...';
+        if (data.courseName) {
+          lobbyCourseInfo.textContent = `Course: ${data.courseName}`;
+        }
         break;
 
       case 'ROUND_STARTING':
         freezeOverlay.classList.remove('hidden');
+        freezeCourse.textContent = data.courseName || '';
         freezeModifier.textContent = `Modifier: ${data.modifier}`;
         freezeTimer.textContent = Math.ceil(data.timer);
         break;
 
       case 'ROUND_ACTIVE':
         hud.classList.remove('hidden');
+        hudCourse.textContent = currentCourseName;
         hudModifier.textContent = data.modifier || 'None';
-        hudCheckpoint.textContent = 'Checkpoint 0/8';
+        hudCheckpoint.textContent = `Checkpoint 0/${currentTotalCheckpoints}`;
         hudRespawns.textContent = 'Respawns: 0';
         hudTimer.textContent = '00:00.00';
         break;
@@ -246,6 +268,12 @@
   function showResults(data) {
     hideAll();
     resultsPanel.classList.remove('hidden');
+
+    // Course name
+    resultsCourse.textContent = data.courseName || currentCourseName;
+    if (data.nextCourseName) {
+      resultsCourse.textContent += ` | Next: ${data.nextCourseName}`;
+    }
 
     // Podium
     let podiumHtml = '';
@@ -484,6 +512,13 @@
     white-space: nowrap;
   }
 
+  .hud-course {
+    font-size: 14px;
+    font-weight: 700;
+    color: #00CCFF;
+    white-space: nowrap;
+  }
+
   #hud-timer {
     font-size: 24px;
     font-weight: 700;
@@ -530,6 +565,14 @@
     font-weight: 800;
     color: #00FFAA;
     text-shadow: 0 0 30px rgba(0,255,170,0.5);
+  }
+
+  .freeze-course {
+    font-size: 32px;
+    font-weight: 800;
+    color: #00CCFF;
+    text-shadow: 0 0 20px rgba(0,204,255,0.5);
+    margin-top: 8px;
   }
 
   .freeze-modifier {
@@ -604,13 +647,27 @@
   .subtitle {
     font-size: 16px;
     color: rgba(255,255,255,0.6);
-    margin-bottom: 20px;
+    margin-bottom: 12px;
+  }
+
+  .lobby-course-info {
+    font-size: 16px;
+    font-weight: 700;
+    color: #00CCFF;
+    margin-bottom: 12px;
   }
 
   .lobby-status {
     font-size: 18px;
     color: #00FFAA;
     margin-bottom: 16px;
+  }
+
+  .results-course {
+    font-size: 15px;
+    font-weight: 600;
+    color: #00CCFF;
+    margin-bottom: 12px;
   }
 
   /* ── Leaderboard ───────────────────────────────────────── */

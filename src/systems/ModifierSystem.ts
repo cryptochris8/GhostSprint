@@ -36,6 +36,18 @@ export class ModifierSystem {
     return MODIFIERS[0];
   }
 
+  /** Select a specific modifier by ID (for courses with fixed modifiers) */
+  selectFixed(modifierId: string): ModifierDef {
+    const mod = MODIFIERS.find(m => m.id === modifierId);
+    if (!mod) {
+      console.warn(`[Modifier] Unknown modifier ID: ${modifierId}, falling back to random`);
+      return this.selectRandom();
+    }
+    this._activeModifier = mod;
+    if (DEBUG_MODE) console.log(`[Modifier] Fixed: ${mod.label}`);
+    return mod;
+  }
+
   /** Apply the active modifier to the world/players */
   apply(world: World, getPlayerEntities: () => Array<{ entity: any; player: Player }>): void {
     this._world = world;
