@@ -67,8 +67,29 @@ startServer(world => {
   world.setDirectionalLightIntensity(1.0);
 
   // ── Music ──────────────────────────────────────────────
-  const lobbyMusic = new Audio({ uri: 'audio/lobby-music.mp3', loop: true, volume: 0.5 });
-  const gameMusic = new Audio({ uri: 'audio/game-music.mp3', loop: true, volume: 0.5 });
+  const lobbyTracks = [
+    new Audio({ uri: 'audio/lobby-music.mp3', loop: true, volume: 0.5 }),
+    new Audio({ uri: 'audio/lobby-music-2.mp3', loop: true, volume: 0.5 }),
+    new Audio({ uri: 'audio/lobby-music-3.mp3', loop: true, volume: 0.5 }),
+    new Audio({ uri: 'audio/lobby-music-4.mp3', loop: true, volume: 0.5 }),
+  ];
+  const gameTracks = [
+    new Audio({ uri: 'audio/game-music.mp3', loop: true, volume: 0.5 }),
+    new Audio({ uri: 'audio/game-music-2.mp3', loop: true, volume: 0.5 }),
+    new Audio({ uri: 'audio/game-music-3.mp3', loop: true, volume: 0.5 }),
+    new Audio({ uri: 'audio/game-music-4.mp3', loop: true, volume: 0.5 }),
+  ];
+  let currentLobbyTrack = lobbyTracks[0];
+  let currentGameTrack = gameTracks[0];
+
+  function pickRandomTrack(tracks: Audio[], current: Audio): Audio {
+    if (tracks.length <= 1) return tracks[0];
+    let next: Audio;
+    do {
+      next = tracks[Math.floor(Math.random() * tracks.length)];
+    } while (next === current);
+    return next;
+  }
 
   // ── Initialize systems ───────────────────────────────────
   const stateMachine = new StateMachine(world);
@@ -91,7 +112,7 @@ startServer(world => {
   leaderboardSystem.load();
 
   // Start lobby music on server boot
-  lobbyMusic.play(world);
+  currentLobbyTrack.play(world);
 
   // Helper: get player entity pairs for modifier system
   function getPlayerEntities() {
@@ -394,9 +415,10 @@ startServer(world => {
   // ── State handlers ───────────────────────────────────────
 
   function handleLobbyIdle(world: World) {
-    // Switch to lobby music
-    gameMusic.pause();
-    lobbyMusic.play(world, true);
+    // Switch to lobby music (pick a new random track)
+    currentGameTrack.pause();
+    currentLobbyTrack = pickRandomTrack(lobbyTracks, currentLobbyTrack);
+    currentLobbyTrack.play(world, true);
 
     // Clean up round state
     modifierSystem.reset(world, getPlayerEntities);
@@ -490,9 +512,10 @@ startServer(world => {
   }
 
   function handleRoundActive(world: World) {
-    // Switch to game music
-    lobbyMusic.pause();
-    gameMusic.play(world, true);
+    // Switch to game music (pick a new random track)
+    currentLobbyTrack.pause();
+    currentGameTrack = pickRandomTrack(gameTracks, currentGameTrack);
+    currentGameTrack.play(world, true);
 
     // Apply modifier
     modifierSystem.apply(world, getPlayerEntities);
