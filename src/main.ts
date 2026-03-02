@@ -223,9 +223,8 @@ startServer(world => {
     const ap = activePlayers.get(player.id);
     if (!ap) return;
 
-    // Cancel any existing pending respawn
-    const existing = pendingRespawns.get(player.id);
-    if (existing) clearTimeout(existing);
+    // If there's already a pending respawn, don't queue another
+    if (pendingRespawns.has(player.id)) return;
 
     // Respawn after 1 second delay
     const timeoutId = setTimeout(() => {
@@ -415,8 +414,8 @@ startServer(world => {
         checkpointSystem.checkCheckpoints(ap.player, pos);
         checkpointSystem.checkFinish(ap.player, pos);
 
-        // Check out-of-bounds
-        if (checkpointSystem.checkOutOfBounds(ap.player, pos)) {
+        // Check out-of-bounds (skip if respawn already pending)
+        if (!pendingRespawns.has(playerId) && checkpointSystem.checkOutOfBounds(ap.player, pos)) {
           // Respawn handled by callback
         }
 
