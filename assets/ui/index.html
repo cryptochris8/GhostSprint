@@ -83,6 +83,12 @@
 </div>
 
 <script>
+  // ── HTML sanitization ───────────────────────────────────────
+  function escapeHtml(str) {
+    if (typeof str !== 'string') return String(str);
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  }
+
   // ── State ─────────────────────────────────────────────────
   let gameState = 'LOBBY_IDLE';
   let playerData = null;
@@ -283,8 +289,8 @@
       data.podium.forEach((p, i) => {
         podiumHtml += `<div class="podium-entry" style="color:${colors[i]}">
           <span class="podium-medal">${medals[i]}</span>
-          <span class="podium-name">${p.username}</span>
-          <span class="podium-time">${p.timeFormatted}</span>
+          <span class="podium-name">${escapeHtml(p.username)}</span>
+          <span class="podium-time">${escapeHtml(p.timeFormatted)}</span>
         </div>`;
       });
     }
@@ -301,7 +307,7 @@
 
     // XP
     let xpHtml = `<div class="xp-total">+${data.xpAwarded} XP</div>`;
-    data.xpReasons.forEach(r => { xpHtml += `<div class="xp-reason">${r}</div>`; });
+    data.xpReasons.forEach(r => { xpHtml += `<div class="xp-reason">${escapeHtml(r)}</div>`; });
     if (data.leveled) {
       xpHtml += `<div class="level-up">LEVEL UP! Level ${data.newLevel} (+${data.coinsAwarded} coins)</div>`;
     }
@@ -329,7 +335,7 @@
       const formatted = formatTime(ms);
       html += `<div class="lb-entry">
         <span class="lb-rank">#${i + 1}</span>
-        <span class="lb-name">${e.username}</span>
+        <span class="lb-name">${escapeHtml(e.username)}</span>
         <span class="lb-time">${formatted}</span>
       </div>`;
     });
@@ -360,11 +366,11 @@
                        (c.type === 'finishEffect' && playerData.equippedFinishEffectId === c.id);
 
       html += `<div class="shop-item">
-        <div class="shop-item-name">${c.name}</div>
-        <div class="shop-item-desc">${c.description}</div>
-        <div class="shop-item-price">${owned ? (equipped ? 'EQUIPPED' : 'OWNED') : `${c.price} coins`}</div>
-        ${!owned ? `<button class="btn btn-buy" onclick="buyCosmetic('${c.id}')">BUY</button>` : ''}
-        ${owned && !equipped ? `<button class="btn btn-equip" onclick="equipCosmetic('${c.id}')">EQUIP</button>` : ''}
+        <div class="shop-item-name">${escapeHtml(c.name)}</div>
+        <div class="shop-item-desc">${escapeHtml(c.description)}</div>
+        <div class="shop-item-price">${owned ? (equipped ? 'EQUIPPED' : 'OWNED') : `${escapeHtml(c.price)} coins`}</div>
+        ${!owned ? `<button class="btn btn-buy" onclick="buyCosmetic('${escapeHtml(c.id)}')">BUY</button>` : ''}
+        ${owned && !equipped ? `<button class="btn btn-equip" onclick="equipCosmetic('${escapeHtml(c.id)}')">EQUIP</button>` : ''}
       </div>`;
     });
     shopItems.innerHTML = html;
@@ -397,11 +403,11 @@
       return;
     }
     statsContent.innerHTML = `
-      <div class="stat-row"><span>Level</span><span>${playerData.level}</span></div>
-      <div class="stat-row"><span>XP</span><span>${playerData.xp}</span></div>
-      <div class="stat-row"><span>Wins</span><span>${playerData.wins || 0}</span></div>
-      <div class="stat-row"><span>Coins</span><span>${playerData.coins}</span></div>
-      <div class="stat-row"><span>Best Time</span><span>${playerData.bestTimeFormatted || 'None'}</span></div>
+      <div class="stat-row"><span>Level</span><span>${escapeHtml(playerData.level)}</span></div>
+      <div class="stat-row"><span>XP</span><span>${escapeHtml(playerData.xp)}</span></div>
+      <div class="stat-row"><span>Wins</span><span>${escapeHtml(playerData.wins || 0)}</span></div>
+      <div class="stat-row"><span>Coins</span><span>${escapeHtml(playerData.coins)}</span></div>
+      <div class="stat-row"><span>Best Time</span><span>${escapeHtml(playerData.bestTimeFormatted || 'None')}</span></div>
     `;
   }
 

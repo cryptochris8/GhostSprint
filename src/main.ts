@@ -56,6 +56,9 @@ const activePlayers: Map<string, ActivePlayer> = new Map();
 // ── Trail particle emitters per player ───────────────────────
 const trailEmitters: Map<string, ParticleEmitter> = new Map();
 
+// ── Pending respawn timeouts per player ──────────────────────
+const pendingRespawns: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
 // ── Course marker entities (for despawn/respawn between rounds) ──
 let courseMarkerEntities: Entity[] = [];
 
@@ -109,7 +112,7 @@ startServer(world => {
   leaderboardSystem.setCourseId(initialCourse.id);
 
   // Load global leaderboard
-  leaderboardSystem.load();
+  leaderboardSystem.load().catch(err => console.error('[Main] Leaderboard initial load failed:', err));
 
   // Start lobby music on server boot
   currentLobbyTrack.play(world);
@@ -186,7 +189,8 @@ startServer(world => {
       }
 
       // Submit to leaderboard
-      leaderboardSystem.submit(player.id, player.username, timeMs);
+      leaderboardSystem.submit(player.id, player.username, timeMs)
+        .catch(err => console.error('[Main] Leaderboard submit failed:', err));
     }
 
     sendUI(player, {
@@ -202,6 +206,9 @@ startServer(world => {
       '00FFAA',
     );
 
+    // Spawn finish effect
+    if (ap) spawnFinishEffect(world, player, ap.entity.position);
+
     // Remove trail
     removeTrail(player.id);
 
@@ -216,8 +223,14 @@ startServer(world => {
     const ap = activePlayers.get(player.id);
     if (!ap) return;
 
+    // Cancel any existing pending respawn
+    const existing = pendingRespawns.get(player.id);
+    if (existing) clearTimeout(existing);
+
     // Respawn after 1 second delay
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
+      pendingRespawns.delete(player.id);
+      if (!activePlayers.has(player.id)) return; // Player left during delay
       const respawnPos = checkpointSystem.getRespawnPosition(player.id);
       ap.entity.setPosition(respawnPos);
       ap.entity.setLinearVelocity({ x: 0, y: 0, z: 0 });
@@ -226,6 +239,7 @@ startServer(world => {
         respawns: checkpointSystem.getPlayerData(player.id)?.respawns ?? 0,
       });
     }, 1000);
+    pendingRespawns.set(player.id, timeoutId);
   });
 
   // ── Player join ──────────────────────────────────────────
@@ -293,6 +307,13 @@ startServer(world => {
     removeTrail(player.id);
     persistenceSystem.save(player);
     persistenceSystem.removePlayer(player.id);
+
+    // Cancel any pending respawn timeout
+    const pendingTimeout = pendingRespawns.get(player.id);
+    if (pendingTimeout) {
+      clearTimeout(pendingTimeout);
+      pendingRespawns.delete(player.id);
+    }
 
     world.entityManager.getPlayerEntitiesByPlayer(player).forEach(e => e.despawn());
     activePlayers.delete(player.id);
@@ -433,7 +454,7 @@ startServer(world => {
     checkpointSystem.setCourse(nextCourse);
     persistenceSystem.setCourseId(nextCourse.id);
     leaderboardSystem.setCourseId(nextCourse.id);
-    leaderboardSystem.load();
+    leaderboardSystem.load().catch(err => console.error('[Main] Leaderboard load failed:', err));
 
     // Despawn old markers, spawn new ones
     despawnCourseMarkers();
@@ -673,7 +694,11 @@ startServer(world => {
 
   function removeTrail(playerId: string) {
     const emitter = trailEmitters.get(playerId);
-    if (emitter?.isSpawned) emitter.despawn();
+    try {
+      if (emitter?.isSpawned) emitter.despawn();
+    } catch (err) {
+      console.error(`[Main] Failed to despawn trail for ${playerId}:`, err);
+    }
     trailEmitters.delete(playerId);
   }
 
@@ -717,14 +742,6 @@ startServer(world => {
       if (emitter.isSpawned) emitter.despawn();
     }, 3000);
   }
-
-  // Hook finish effect into the checkpoint finish callback
-  checkpointSystem.onFinish((player, _respawns) => {
-    const ap = activePlayers.get(player.id);
-    if (ap) {
-      spawnFinishEffect(world, player, ap.entity.position);
-    }
-  });
 
   // ── UI helpers ───────────────────────────────────────────
 

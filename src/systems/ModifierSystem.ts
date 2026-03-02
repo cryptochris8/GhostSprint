@@ -9,6 +9,13 @@ import { MODIFIERS, DEBUG_MODE } from '../config/gameConfig';
 import type { ModifierDef } from '../config/gameConfig';
 
 export class ModifierSystem {
+  /** Safely get a DefaultPlayerEntityController from an entity, or null */
+  private _getController(entity: any): DefaultPlayerEntityController | null {
+    const ctrl = entity?.controller;
+    if (!ctrl || typeof ctrl !== 'object') return null;
+    return ctrl as DefaultPlayerEntityController;
+  }
+
   private _activeModifier: ModifierDef | null = null;
   private _world: World | null = null;
   private _originalGravity = { x: 0, y: -32, z: 0 };
@@ -64,21 +71,19 @@ export class ModifierSystem {
         // Reduce walk/run friction by boosting velocity slightly
         // (True friction is block-level; we simulate via increased slide)
         for (const { entity } of entries) {
-          const ctrl = entity.controller as DefaultPlayerEntityController;
-          if (ctrl) {
-            ctrl.walkVelocity = 6;
-            ctrl.runVelocity = 12;
-          }
+          const ctrl = this._getController(entity);
+          if (!ctrl) continue;
+          ctrl.walkVelocity = 6;
+          ctrl.runVelocity = 12;
         }
         break;
 
       case 'speed_boost':
         for (const { entity } of entries) {
-          const ctrl = entity.controller as DefaultPlayerEntityController;
-          if (ctrl) {
-            ctrl.walkVelocity = Math.round(ctrl.walkVelocity * 1.15);
-            ctrl.runVelocity = Math.round(ctrl.runVelocity * 1.15);
-          }
+          const ctrl = this._getController(entity);
+          if (!ctrl) continue;
+          ctrl.walkVelocity = Math.round(ctrl.walkVelocity * 1.15);
+          ctrl.runVelocity = Math.round(ctrl.runVelocity * 1.15);
         }
         break;
 
@@ -109,11 +114,10 @@ export class ModifierSystem {
 
     // Restore player velocities
     for (const { entity } of getPlayerEntities()) {
-      const ctrl = entity.controller as DefaultPlayerEntityController;
-      if (ctrl) {
-        ctrl.walkVelocity = 4;
-        ctrl.runVelocity = 8;
-      }
+      const ctrl = this._getController(entity);
+      if (!ctrl) continue;
+      ctrl.walkVelocity = 4;
+      ctrl.runVelocity = 8;
     }
 
     this._activeModifier = null;
@@ -125,7 +129,7 @@ export class ModifierSystem {
   tryDoubleJump(playerId: string, entity: any, input: any): boolean {
     if (this._activeModifier?.id !== 'double_jump') return false;
 
-    const ctrl = entity.controller as DefaultPlayerEntityController;
+    const ctrl = this._getController(entity);
     if (!ctrl) return false;
 
     // If player is in the air and presses space, and hasn't used double jump
@@ -163,9 +167,13 @@ export class ModifierSystem {
     const forwardX = -sinY * 5;
     const forwardZ = -cosY * 5;
 
+    const destY = pos.y + 0.5;
+    // Don't blink if destination would be significantly below current position
+    if (destY < pos.y - 2) return false;
+
     entity.setPosition({
       x: pos.x + forwardX,
-      y: pos.y + 0.5,
+      y: destY,
       z: pos.z + forwardZ,
     });
     return true;
@@ -174,7 +182,7 @@ export class ModifierSystem {
   /** Apply modifier to a newly joined player mid-round */
   applyToPlayer(entity: any): void {
     if (!this._activeModifier) return;
-    const ctrl = entity.controller as DefaultPlayerEntityController;
+    const ctrl = this._getController(entity);
     if (!ctrl) return;
 
     switch (this._activeModifier.id) {

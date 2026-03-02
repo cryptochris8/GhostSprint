@@ -121,9 +121,9 @@ export class GhostSystem {
       const targetIndex = Math.floor(elapsed / GHOST_SAMPLE_INTERVAL_MS);
 
       if (targetIndex >= ghost.samples.length) {
-        // Ghost replay finished — loop or despawn
-        ghost.startMs = now; // loop
-        ghost.sampleIndex = 0;
+        // Ghost replay finished — despawn
+        if (ghost.entity.isSpawned) ghost.entity.despawn();
+        this._ghostEntities.delete(playerId);
         continue;
       }
 
