@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__desktop-commander__list_directory",
+      "WebFetch(domain:dev.hytopia.com)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(findstr:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "mcp__desktop-commander__read_file",
+      "Bash(powershell:*)",
+      "Bash(npx hytopia start:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(netstat:*)",
+      "Bash(npx tsc:*)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "hytopia-mcp"
+  ],
+  "enableAllProjectMcpServers": true
+}
