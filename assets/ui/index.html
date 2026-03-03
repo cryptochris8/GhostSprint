@@ -525,29 +525,45 @@
   document.getElementById('btn-stats-close').addEventListener('click', () => toggleStats());
 
   // ── Mobile controls ───────────────────────────────────────
-  const mobileBlinkButton = document.getElementById('mobile-blink-button');
-  mobileBlinkButton.addEventListener('touchstart', e => {
-    e.preventDefault();
-    mobileBlinkButton.classList.add('active');
-    hytopia.pressInput('f', true);
-  });
-  mobileBlinkButton.addEventListener('touchend', e => {
-    e.preventDefault();
-    mobileBlinkButton.classList.remove('active');
-    hytopia.pressInput('f', false);
-  });
+  function setupMobileButton(id, inputKey) {
+    var btn = document.getElementById(id);
+    var touchId = null;
 
-  const mobileJumpButton = document.getElementById('mobile-jump-button');
-  mobileJumpButton.addEventListener('touchstart', e => {
-    e.preventDefault();
-    mobileJumpButton.classList.add('active');
-    hytopia.pressInput(' ', true);
-  });
-  mobileJumpButton.addEventListener('touchend', e => {
-    e.preventDefault();
-    mobileJumpButton.classList.remove('active');
-    hytopia.pressInput(' ', false);
-  });
+    function press(tid) {
+      if (touchId !== null) return;
+      touchId = tid;
+      btn.classList.add('active');
+      hytopia.pressInput(inputKey, true);
+    }
+
+    function release(tid) {
+      if (tid !== undefined && tid !== touchId) return;
+      touchId = null;
+      btn.classList.remove('active');
+      hytopia.pressInput(inputKey, false);
+    }
+
+    btn.addEventListener('touchstart', function(e) {
+      e.preventDefault();
+      press(e.changedTouches[0].identifier);
+    }, { passive: false });
+
+    btn.addEventListener('touchend', function(e) {
+      e.preventDefault();
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === touchId) release(touchId);
+      }
+    }, { passive: false });
+
+    btn.addEventListener('touchcancel', function(e) {
+      for (var i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === touchId) release(touchId);
+      }
+    }, { passive: false });
+  }
+
+  setupMobileButton('mobile-blink-button', 'f');
+  setupMobileButton('mobile-jump-button', ' ');
 </script>
 
 <style>
