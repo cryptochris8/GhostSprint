@@ -170,6 +170,15 @@ startServer(world => {
       total: checkpointSystem.totalCheckpoints,
     });
     world.chatManager.sendPlayerMessage(player, `Checkpoint ${index + 1}/${checkpointSystem.totalCheckpoints}`, '00FF00');
+
+    // Checkpoint SFX + particles
+    const ap = activePlayers.get(player.id);
+    if (ap) playSfxOnEntity('audio/sfx/ui/notification-1.mp3', ap.entity, 0.5);
+
+    const cpPositions = courseManager.activeCourse.checkpointPositions;
+    if (cpPositions[index]) {
+      spawnCheckpointBurst(world, cpPositions[index], index);
+    }
   });
 
   checkpointSystem.onFinish((player, respawns) => {
@@ -206,8 +215,11 @@ startServer(world => {
       '00FFAA',
     );
 
-    // Spawn finish effect
-    if (ap) spawnFinishEffect(world, player, ap.entity.position);
+    // Spawn finish effect + SFX
+    if (ap) {
+      spawnFinishEffect(world, player, ap.entity.position);
+      playSfxOnEntity('audio/sfx/entity/portal/portal-travel-woosh.mp3', ap.entity, 0.6);
+    }
 
     // Remove trail
     removeTrail(player.id);
@@ -225,6 +237,9 @@ startServer(world => {
 
     // If there's already a pending respawn, don't queue another
     if (pendingRespawns.has(player.id)) return;
+
+    // Respawn SFX
+    playSfxOnEntity('audio/sfx/damage/fall-big.mp3', ap.entity, 0.5);
 
     // Respawn after 1 second delay
     const timeoutId = setTimeout(() => {
@@ -386,6 +401,7 @@ startServer(world => {
 
   // ── World tick ───────────────────────────────────────────
   let lastTickMs = Date.now();
+  let lastCountdownInt = -1;
 
   world.loop.on(WorldLoopEvent.TICK_START, ({ tickDeltaMs }) => {
     const now = Date.now();
@@ -393,6 +409,17 @@ startServer(world => {
 
     // State machine tick
     stateMachine.tick(deltaSec);
+
+    // Countdown SFX (3-2-1)
+    if (stateMachine.state === GameState.ROUND_STARTING) {
+      const currentInt = Math.ceil(stateMachine.stateTimer);
+      if (currentInt !== lastCountdownInt && currentInt > 0 && currentInt <= 3) {
+        lastCountdownInt = currentInt;
+        playSfx('audio/sfx/ui/button-click.mp3', 0.7);
+      }
+    } else {
+      lastCountdownInt = -1;
+    }
 
     // Ghost replay tick
     ghostSystem.tickGhosts();
@@ -420,8 +447,12 @@ startServer(world => {
         }
 
         // Modifier tick
-        modifierSystem.tryDoubleJump(playerId, ap.entity, ap.player.input);
-        modifierSystem.tryBlink(playerId, ap.entity, ap.player.input);
+        if (modifierSystem.tryDoubleJump(playerId, ap.entity, ap.player.input)) {
+          playSfxOnEntity('audio/sfx/player/player-swing-woosh.mp3', ap.entity, 0.4);
+        }
+        if (modifierSystem.tryBlink(playerId, ap.entity, ap.player.input)) {
+          playSfxOnEntity('audio/sfx/player/player-swing-woosh.mp3', ap.entity, 0.6);
+        }
       }
     }
 
@@ -537,8 +568,14 @@ startServer(world => {
     currentGameTrack = pickRandomTrack(gameTracks, currentGameTrack);
     currentGameTrack.play(world, true);
 
+    // Race start SFX
+    playSfx('audio/sfx/ui/switch-flip.mp3', 0.8);
+
     // Apply modifier
     modifierSystem.apply(world, getPlayerEntities);
+
+    // Modifier activated SFX
+    playSfx('audio/sfx/fire/fire-ignite.mp3', 0.6);
 
     // Spawn trails for players with equipped trails
     for (const [playerId, ap] of activePlayers) {
@@ -742,6 +779,42 @@ startServer(world => {
     }, 3000);
   }
 
+  // ── Checkpoint burst particles ──────────────────────────
+
+  function spawnCheckpointBurst(world: World, pos: { x: number; y: number; z: number }, checkpointIndex: number) {
+    const colors = [
+      { r: 0, g: 255, b: 255 },   // aqua
+      { r: 0, g: 255, b: 0 },     // lime
+      { r: 255, g: 255, b: 0 },   // yellow
+      { r: 255, g: 165, b: 0 },   // orange
+      { r: 255, g: 105, b: 180 }, // pink
+      { r: 255, g: 0, b: 255 },   // magenta
+      { r: 128, g: 0, b: 255 },   // purple
+      { r: 135, g: 206, b: 250 }, // light blue
+    ];
+    const color = colors[checkpointIndex % colors.length];
+
+    const emitter = new ParticleEmitter({
+      position: { x: pos.x, y: pos.y + 1, z: pos.z },
+      textureUri: 'particles/smoke.png',
+      rate: 0,
+      maxParticles: 25,
+      lifetime: 1.2,
+      sizeStart: 0.25,
+      sizeEnd: 0.05,
+      opacityStart: 0.9,
+      opacityEnd: 0,
+      colorStart: color,
+      colorEnd: { r: 255, g: 255, b: 255 },
+      velocity: { x: 0, y: 3, z: 0 },
+      velocityVariance: { x: 2, y: 2, z: 2 },
+      gravity: { x: 0, y: -3, z: 0 },
+    });
+
+    emitter.spawn(world);
+    setTimeout(() => { if (emitter.isSpawned) emitter.despawn(); }, 2000);
+  }
+
   // ── UI helpers ───────────────────────────────────────────
 
   function sendUI(player: Player, data: Record<string, unknown>) {
@@ -776,6 +849,18 @@ startServer(world => {
     }
   }
 
+  // ── SFX helpers ─────────────────────────────────────────
+
+  function playSfx(uri: string, volume = 0.6) {
+    const audio = new Audio({ uri, volume });
+    audio.play(world);
+  }
+
+  function playSfxOnEntity(uri: string, entity: DefaultPlayerEntity, volume = 0.5) {
+    const audio = new Audio({ uri, volume, attachedToEntity: entity });
+    audio.play(world);
+  }
+
   // ── Course visual markers ────────────────────────────────
 
   function spawnCourseMarkers(world: World, course: CourseDefinition) {
@@ -800,6 +885,7 @@ startServer(world => {
       },
     });
     startEntity.spawn(world, course.startPadPosition);
+    startEntity.setOutline({ color: { r: 0, g: 255, b: 0 }, colorIntensity: 1.5, thickness: 0.04, occluded: false });
     courseMarkerEntities.push(startEntity);
 
     // Finish gate
@@ -823,6 +909,7 @@ startServer(world => {
       },
     });
     finishEntity.spawn(world, course.finishGatePosition);
+    finishEntity.setOutline({ color: { r: 255, g: 215, b: 0 }, colorIntensity: 2.0, thickness: 0.04, occluded: false });
     courseMarkerEntities.push(finishEntity);
 
     // Checkpoint markers
@@ -845,6 +932,17 @@ startServer(world => {
       z: course.checkpointSize.z / 2,
     };
 
+    const cpOutlineColors = [
+      { r: 0, g: 255, b: 255 },   // aqua
+      { r: 0, g: 255, b: 0 },     // lime
+      { r: 255, g: 255, b: 0 },   // yellow
+      { r: 255, g: 165, b: 0 },   // orange
+      { r: 255, g: 105, b: 180 }, // pink
+      { r: 255, g: 0, b: 255 },   // magenta
+      { r: 128, g: 0, b: 255 },   // purple
+      { r: 135, g: 206, b: 250 }, // light blue
+    ];
+
     course.checkpointPositions.forEach((pos, i) => {
       const cpEntity = new Entity({
         name: `checkpoint_${i}`,
@@ -861,6 +959,7 @@ startServer(world => {
         },
       });
       cpEntity.spawn(world, pos);
+      cpEntity.setOutline({ color: cpOutlineColors[i % cpOutlineColors.length], colorIntensity: 1.2, thickness: 0.03, occluded: false });
       courseMarkerEntities.push(cpEntity);
     });
 
@@ -903,6 +1002,22 @@ startServer(world => {
     if (rank) {
       world.chatManager.sendPlayerMessage(player, `Your rank: #${rank}`, '00FF00');
     }
+  });
+
+  world.chatManager.registerCommand('/course', (player) => {
+    const course = courseManager.activeCourse;
+    world.chatManager.sendPlayerMessage(player, `--- Current Course ---`, '00CCFF');
+    world.chatManager.sendPlayerMessage(player, `Name: ${course.name}`);
+    world.chatManager.sendPlayerMessage(player, `Checkpoints: ${course.checkpointPositions.length}`);
+    world.chatManager.sendPlayerMessage(player, `Modifier: ${modifierSystem.activeModifierLabel}`);
+  });
+
+  world.chatManager.registerCommand('/help', (player) => {
+    world.chatManager.sendPlayerMessage(player, `--- GhostSprint Commands ---`, 'FFD700');
+    world.chatManager.sendPlayerMessage(player, `/stats - View your stats`);
+    world.chatManager.sendPlayerMessage(player, `/lb - View the leaderboard`);
+    world.chatManager.sendPlayerMessage(player, `/course - View current course info`);
+    world.chatManager.sendPlayerMessage(player, `/help - Show this help message`);
   });
 
   if (DEBUG_MODE) {
