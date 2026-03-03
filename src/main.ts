@@ -773,6 +773,7 @@ startServer(world => {
     });
 
     emitter.spawn(world);
+    emitter.burst(50);
     // Auto-despawn after 3 seconds
     setTimeout(() => {
       if (emitter.isSpawned) emitter.despawn();
@@ -795,24 +796,30 @@ startServer(world => {
     const color = colors[checkpointIndex % colors.length];
 
     const emitter = new ParticleEmitter({
-      position: { x: pos.x, y: pos.y + 1, z: pos.z },
+      position: { x: pos.x, y: pos.y + 2, z: pos.z },
       textureUri: 'particles/smoke.png',
       rate: 0,
-      maxParticles: 25,
-      lifetime: 1.2,
-      sizeStart: 0.25,
-      sizeEnd: 0.05,
-      opacityStart: 0.9,
+      maxParticles: 40,
+      lifetime: 2,
+      lifetimeVariance: 0.5,
+      sizeStart: 0.5,
+      sizeEnd: 0.1,
+      sizeStartVariance: 0.2,
+      opacityStart: 1,
       opacityEnd: 0,
       colorStart: color,
       colorEnd: { r: 255, g: 255, b: 255 },
-      velocity: { x: 0, y: 3, z: 0 },
-      velocityVariance: { x: 2, y: 2, z: 2 },
-      gravity: { x: 0, y: -3, z: 0 },
+      colorStartVariance: { r: 50, g: 50, b: 50 },
+      colorIntensityStart: 2,
+      colorIntensityEnd: 0.5,
+      velocity: { x: 0, y: 6, z: 0 },
+      velocityVariance: { x: 4, y: 3, z: 4 },
+      gravity: { x: 0, y: -4, z: 0 },
     });
 
     emitter.spawn(world);
-    setTimeout(() => { if (emitter.isSpawned) emitter.despawn(); }, 2000);
+    setTimeout(() => { emitter.burst(30); }, 50);
+    setTimeout(() => { if (emitter.isSpawned) emitter.despawn(); }, 3000);
   }
 
   // ── UI helpers ───────────────────────────────────────────
