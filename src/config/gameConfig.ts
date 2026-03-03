@@ -5,6 +5,7 @@
  */
 
 // ── Session / Round ──────────────────────────────────────────
+export const MAX_PLAYERS = 16;
 export const MIN_PLAYERS_TO_START = 1;
 export const LOBBY_COUNTDOWN_SEC = 15;
 export const ROUND_DURATION_SEC = 180;

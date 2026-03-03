@@ -23,6 +23,7 @@ import worldMap from '../assets/map.json';
 // Config
 import {
   DEBUG_MODE,
+  MAX_PLAYERS,
   ROUND_DURATION_SEC,
 } from './config/gameConfig';
 import { COURSES } from './config/courseConfig';
@@ -273,26 +274,61 @@ startServer(world => {
 
   // ── Player join ──────────────────────────────────────────
   world.on(PlayerEvent.JOINED_WORLD, ({ player }) => {
+    // Player cap
+    if (activePlayers.size >= MAX_PLAYERS) {
+      world.chatManager.sendPlayerMessage(player, 'Server is full! Try again soon.', 'FF4444');
+      player.disconnect();
+      return;
+    }
+
+    const course = courseManager.activeCourse;
     const playerEntity = new DefaultPlayerEntity({
       player,
       name: player.username,
     });
 
-    playerEntity.spawn(world, courseManager.activeCourse.lobbySpawn);
+    playerEntity.spawn(world, course.lobbySpawn);
     player.ui.load('ui/index.html');
 
     // Load persistence for current course
     persistenceSystem.setCourseId(courseManager.courseId);
     const pData = persistenceSystem.load(player);
 
-    activePlayers.set(player.id, {
+    const ap: ActivePlayer = {
       player,
       entity: playerEntity,
       finishTimeMs: null,
       isNewPB: false,
-    });
+    };
+    activePlayers.set(player.id, ap);
 
     stateMachine.playerJoined(player.id);
+
+    // State-aware spawn logic for mid-game joiners
+    const currentState = stateMachine.state;
+    if (currentState === GameState.ROUND_ACTIVE || currentState === GameState.ROUND_STARTING) {
+      // Register in checkpoint system and teleport to start pad
+      checkpointSystem.resetPlayer(player.id);
+      const startPos = course.startPadPosition;
+      playerEntity.setPosition({ x: startPos.x, y: startPos.y + 2, z: startPos.z });
+      playerEntity.setLinearVelocity({ x: 0, y: 0, z: 0 });
+
+      // Apply velocity modifiers (ice/speed); gravity + dark_mode are world-level
+      modifierSystem.applyToPlayer(playerEntity);
+
+      // Spawn cosmetic trail
+      spawnTrailForPlayer(world, player.id, ap);
+
+      // Spawn ghost if exists
+      if (pData.ghostData) {
+        ghostSystem.spawnGhost(world, player.id, pData.ghostData);
+      }
+
+      world.chatManager.sendPlayerMessage(player, 'Round in progress — head to the start pad and race!', 'FFCC00');
+    } else if (currentState === GameState.ROUND_RESULTS) {
+      // Stay at lobby spawn (default), next round starting soon
+      world.chatManager.sendPlayerMessage(player, 'Round just ended. Next round starting soon!', '00CCFF');
+    }
 
     // Send initial UI data (async for leaderboard loading)
     buildAllLeaderboardData(player.id).then(allLbData => {

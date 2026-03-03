@@ -99,6 +99,7 @@
   let currentTotalCheckpoints = 8;
   let allLeaderboardData = [];
   let activeLeaderboardTab = '';
+  let hasReceivedResults = false;
 
   // ── DOM refs ──────────────────────────────────────────────
   const hud = document.getElementById('hud');
@@ -176,6 +177,7 @@
         break;
 
       case 'roundResults':
+        hasReceivedResults = true;
         showResults(data);
         break;
 
@@ -477,6 +479,7 @@
     statsPanel.classList.add('hidden');
     shopVisible = false;
     statsVisible = false;
+    hasReceivedResults = false;
   }
 
   function updateUIForState() {
@@ -493,7 +496,11 @@
         hud.classList.remove('hidden');
         break;
       case 'ROUND_RESULTS':
-        resultsPanel.classList.remove('hidden');
+        if (hasReceivedResults) {
+          resultsPanel.classList.remove('hidden');
+        } else {
+          lobbyPanel.classList.remove('hidden');
+        }
         break;
     }
   }
