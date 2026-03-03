@@ -89,4 +89,34 @@ export class LeaderboardSystem {
     const entry = this._entries.find(e => e.playerId === playerId);
     return entry?.timeMs ?? null;
   }
+
+  /**
+   * Load leaderboards for multiple courses in parallel.
+   * Does NOT affect _courseId or _entries (existing API untouched).
+   */
+  async loadAllCourses(courseIds: string[]): Promise<Map<string, LeaderboardEntry[]>> {
+    const result = new Map<string, LeaderboardEntry[]>();
+    const loads = courseIds.map(async (id) => {
+      try {
+        const data = await PersistenceManager.instance.getGlobalData(`leaderboard_${id}`);
+        let entries: LeaderboardEntry[] = [];
+        if (data?.entries && Array.isArray(data.entries)) {
+          entries = (data.entries as LeaderboardEntry[]).slice();
+          entries.sort((a, b) => a.timeMs - b.timeMs);
+        }
+        result.set(id, entries);
+      } catch (err) {
+        console.error(`[Leaderboard] Failed to load course ${id}:`, err);
+        result.set(id, []);
+      }
+    });
+    await Promise.all(loads);
+    return result;
+  }
+
+  /** Get a player's rank from a given entries array (1-indexed, null if not ranked). */
+  static getRankFromEntries(entries: LeaderboardEntry[], playerId: string): number | null {
+    const idx = entries.findIndex(e => e.playerId === playerId);
+    return idx >= 0 ? idx + 1 : null;
+  }
 }

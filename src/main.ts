@@ -36,6 +36,7 @@ import { ModifierSystem } from './systems/ModifierSystem';
 import { GhostSystem } from './systems/GhostSystem';
 import { PersistenceSystem } from './systems/PersistenceSystem';
 import { LeaderboardSystem } from './systems/LeaderboardSystem';
+import type { LeaderboardEntry } from './systems/LeaderboardSystem';
 import { XPSystem } from './systems/XPSystem';
 import { CourseManager } from './systems/CourseManager';
 import type { RoundResult } from './systems/XPSystem';
@@ -123,6 +124,20 @@ startServer(world => {
       entity: ap.entity,
       player: ap.player,
     }));
+  }
+
+  // ── Build all-course leaderboard payload ────────────────
+  async function buildAllLeaderboardData(playerId: string) {
+    const allEntries = await leaderboardSystem.loadAllCourses(COURSES.map(c => c.id));
+    return COURSES.map(c => {
+      const entries = allEntries.get(c.id) ?? [];
+      return {
+        courseId: c.id,
+        courseName: c.name,
+        entries: entries.slice(0, 10),
+        playerRank: LeaderboardSystem.getRankFromEntries(entries, playerId),
+      };
+    });
   }
 
   // ── Spawn initial course markers (visual) ─────────────────
@@ -279,28 +294,31 @@ startServer(world => {
 
     stateMachine.playerJoined(player.id);
 
-    // Send initial UI data
-    sendUI(player, {
-      type: 'init',
-      state: stateMachine.state,
-      timer: stateMachine.stateTimer,
-      leaderboard: leaderboardSystem.top10,
-      courseName: courseManager.courseName,
-      totalCheckpoints: checkpointSystem.totalCheckpoints,
-      playerData: {
-        xp: pData.xp,
-        level: pData.level,
-        coins: pData.coins,
-        bestTimeMs: pData.bestTimeMs,
-        bestTimeFormatted: pData.bestTimeMs ? TimerSystem.formatTime(pData.bestTimeMs) : null,
-        wins: pData.wins,
-        ownedCosmetics: pData.ownedCosmetics,
-        equippedTrailId: pData.equippedTrailId,
-        equippedFinishEffectId: pData.equippedFinishEffectId,
-      },
-      cosmetics: COSMETICS,
-      modifier: modifierSystem.activeModifierLabel,
-    });
+    // Send initial UI data (async for leaderboard loading)
+    buildAllLeaderboardData(player.id).then(allLbData => {
+      sendUI(player, {
+        type: 'init',
+        state: stateMachine.state,
+        timer: stateMachine.stateTimer,
+        leaderboard: allLbData,
+        activeCourseId: courseManager.courseId,
+        courseName: courseManager.courseName,
+        totalCheckpoints: checkpointSystem.totalCheckpoints,
+        playerData: {
+          xp: pData.xp,
+          level: pData.level,
+          coins: pData.coins,
+          bestTimeMs: pData.bestTimeMs,
+          bestTimeFormatted: pData.bestTimeMs ? TimerSystem.formatTime(pData.bestTimeMs) : null,
+          wins: pData.wins,
+          ownedCosmetics: pData.ownedCosmetics,
+          equippedTrailId: pData.equippedTrailId,
+          equippedFinishEffectId: pData.equippedFinishEffectId,
+        },
+        cosmetics: COSMETICS,
+        modifier: modifierSystem.activeModifierLabel,
+      });
+    }).catch(err => console.error('[Main] Failed to build leaderboard for join:', err));
 
     // Listen for UI messages from this player
     player.ui.on(PlayerUIEvent.DATA, ({ data }) => {
@@ -337,27 +355,30 @@ startServer(world => {
   world.on(PlayerEvent.RECONNECTED_WORLD, ({ player }) => {
     player.ui.load('ui/index.html');
     const pData = persistenceSystem.get(player.id);
-    sendUI(player, {
-      type: 'init',
-      state: stateMachine.state,
-      timer: stateMachine.stateTimer,
-      leaderboard: leaderboardSystem.top10,
-      courseName: courseManager.courseName,
-      totalCheckpoints: checkpointSystem.totalCheckpoints,
-      playerData: pData ? {
-        xp: pData.xp,
-        level: pData.level,
-        coins: pData.coins,
-        bestTimeMs: pData.bestTimeMs,
-        bestTimeFormatted: pData.bestTimeMs ? TimerSystem.formatTime(pData.bestTimeMs) : null,
-        wins: pData.wins,
-        ownedCosmetics: pData.ownedCosmetics,
-        equippedTrailId: pData.equippedTrailId,
-        equippedFinishEffectId: pData.equippedFinishEffectId,
-      } : null,
-      cosmetics: COSMETICS,
-      modifier: modifierSystem.activeModifierLabel,
-    });
+    buildAllLeaderboardData(player.id).then(allLbData => {
+      sendUI(player, {
+        type: 'init',
+        state: stateMachine.state,
+        timer: stateMachine.stateTimer,
+        leaderboard: allLbData,
+        activeCourseId: courseManager.courseId,
+        courseName: courseManager.courseName,
+        totalCheckpoints: checkpointSystem.totalCheckpoints,
+        playerData: pData ? {
+          xp: pData.xp,
+          level: pData.level,
+          coins: pData.coins,
+          bestTimeMs: pData.bestTimeMs,
+          bestTimeFormatted: pData.bestTimeMs ? TimerSystem.formatTime(pData.bestTimeMs) : null,
+          wins: pData.wins,
+          ownedCosmetics: pData.ownedCosmetics,
+          equippedTrailId: pData.equippedTrailId,
+          equippedFinishEffectId: pData.equippedFinishEffectId,
+        } : null,
+        cosmetics: COSMETICS,
+        modifier: modifierSystem.activeModifierLabel,
+      });
+    }).catch(err => console.error('[Main] Failed to build leaderboard for reconnect:', err));
   });
 
   // ── UI message handler ──────────────────────────────────
@@ -465,7 +486,7 @@ startServer(world => {
 
   // ── State handlers ───────────────────────────────────────
 
-  function handleLobbyIdle(world: World) {
+  async function handleLobbyIdle(world: World) {
     // Switch to lobby music (pick a new random track)
     currentGameTrack.pause();
     currentLobbyTrack = pickRandomTrack(lobbyTracks, currentLobbyTrack);
@@ -510,14 +531,28 @@ startServer(world => {
       }
     }
 
-    broadcastUI({
-      type: 'stateChange',
-      state: 'LOBBY_IDLE',
-      leaderboard: leaderboardSystem.top10,
-      courseName: courseManager.courseName,
-      nextCourseName: courseManager.nextCourse().name,
-      totalCheckpoints: checkpointSystem.totalCheckpoints,
-    });
+    // Load all-course leaderboard once, send per-player with individual ranks
+    const allEntries = await leaderboardSystem.loadAllCourses(COURSES.map(c => c.id));
+    for (const [, ap] of activePlayers) {
+      const allLbData = COURSES.map(c => {
+        const entries = allEntries.get(c.id) ?? [];
+        return {
+          courseId: c.id,
+          courseName: c.name,
+          entries: entries.slice(0, 10),
+          playerRank: LeaderboardSystem.getRankFromEntries(entries, ap.player.id),
+        };
+      });
+      sendUI(ap.player, {
+        type: 'stateChange',
+        state: 'LOBBY_IDLE',
+        leaderboard: allLbData,
+        activeCourseId: courseManager.courseId,
+        courseName: courseManager.courseName,
+        nextCourseName: courseManager.nextCourse().name,
+        totalCheckpoints: checkpointSystem.totalCheckpoints,
+      });
+    }
   }
 
   function handleRoundStarting(world: World) {
@@ -992,23 +1027,61 @@ startServer(world => {
     world.chatManager.sendPlayerMessage(player, `Coins: ${pData.coins}`);
   });
 
-  world.chatManager.registerCommand('/lb', (player) => {
-    const top = leaderboardSystem.top10;
-    world.chatManager.sendPlayerMessage(player, `--- Leaderboard (${courseManager.courseName}) ---`, 'FFD700');
-    if (top.length === 0) {
-      world.chatManager.sendPlayerMessage(player, 'No times recorded yet!');
+  world.chatManager.registerCommand('/lb', (player, args) => {
+    const arg = (args ?? []).join(' ').trim().toLowerCase();
+
+    if (!arg) {
+      // No arg: show current course leaderboard
+      const top = leaderboardSystem.top10;
+      world.chatManager.sendPlayerMessage(player, `--- Leaderboard (${courseManager.courseName}) ---`, 'FFD700');
+      if (top.length === 0) {
+        world.chatManager.sendPlayerMessage(player, 'No times recorded yet!');
+        return;
+      }
+      top.forEach((entry, i) => {
+        world.chatManager.sendPlayerMessage(
+          player,
+          `#${i + 1} ${entry.username} - ${TimerSystem.formatTime(entry.timeMs)}`,
+        );
+      });
+      const rank = leaderboardSystem.getPlayerRank(player.id);
+      if (rank) {
+        world.chatManager.sendPlayerMessage(player, `Your rank: #${rank}`, '00FF00');
+      }
       return;
     }
-    top.forEach((entry, i) => {
-      world.chatManager.sendPlayerMessage(
-        player,
-        `#${i + 1} ${entry.username} - ${TimerSystem.formatTime(entry.timeMs)}`,
-      );
-    });
-    const rank = leaderboardSystem.getPlayerRank(player.id);
-    if (rank) {
-      world.chatManager.sendPlayerMessage(player, `Your rank: #${rank}`, '00FF00');
+
+    // Find course by name (case-insensitive partial match)
+    const course = COURSES.find(c => c.name.toLowerCase() === arg);
+    if (!course) {
+      world.chatManager.sendPlayerMessage(player, `Course not found: "${arg}"`, 'FF4444');
+      world.chatManager.sendPlayerMessage(player, `Available: ${COURSES.map(c => c.name).join(', ')}`, 'AAAAAA');
+      return;
     }
+
+    // Load that course's leaderboard
+    leaderboardSystem.loadAllCourses([course.id]).then(allEntries => {
+      const entries = allEntries.get(course.id) ?? [];
+      const top10 = entries.slice(0, 10);
+      world.chatManager.sendPlayerMessage(player, `--- Leaderboard (${course.name}) ---`, 'FFD700');
+      if (top10.length === 0) {
+        world.chatManager.sendPlayerMessage(player, 'No times recorded yet!');
+        return;
+      }
+      top10.forEach((entry, i) => {
+        world.chatManager.sendPlayerMessage(
+          player,
+          `#${i + 1} ${entry.username} - ${TimerSystem.formatTime(entry.timeMs)}`,
+        );
+      });
+      const rank = LeaderboardSystem.getRankFromEntries(entries, player.id);
+      if (rank) {
+        world.chatManager.sendPlayerMessage(player, `Your rank: #${rank}`, '00FF00');
+      }
+    }).catch(err => {
+      console.error('[Main] /lb course load failed:', err);
+      world.chatManager.sendPlayerMessage(player, 'Failed to load leaderboard.', 'FF4444');
+    });
   });
 
   world.chatManager.registerCommand('/course', (player) => {
@@ -1022,7 +1095,7 @@ startServer(world => {
   world.chatManager.registerCommand('/help', (player) => {
     world.chatManager.sendPlayerMessage(player, `--- GhostSprint Commands ---`, 'FFD700');
     world.chatManager.sendPlayerMessage(player, `/stats - View your stats`);
-    world.chatManager.sendPlayerMessage(player, `/lb - View the leaderboard`);
+    world.chatManager.sendPlayerMessage(player, `/lb [course] - View leaderboard`);
     world.chatManager.sendPlayerMessage(player, `/course - View current course info`);
     world.chatManager.sendPlayerMessage(player, `/help - Show this help message`);
   });

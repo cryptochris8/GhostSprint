@@ -97,6 +97,8 @@
   let statsVisible = false;
   let currentCourseName = '';
   let currentTotalCheckpoints = 8;
+  let allLeaderboardData = [];
+  let activeLeaderboardTab = '';
 
   // ── DOM refs ──────────────────────────────────────────────
   const hud = document.getElementById('hud');
@@ -141,7 +143,7 @@
         if (data.courseName) currentCourseName = data.courseName;
         if (data.totalCheckpoints) currentTotalCheckpoints = data.totalCheckpoints;
         updateUIForState();
-        if (data.leaderboard) renderLeaderboard(data.leaderboard);
+        if (data.leaderboard) renderLeaderboard(data.leaderboard, data.activeCourseId);
         break;
 
       case 'stateChange':
@@ -206,7 +208,7 @@
         if (data.courseName) {
           lobbyCourseInfo.textContent = `Next Course: ${data.nextCourseName || data.courseName}`;
         }
-        if (data.leaderboard) renderLeaderboard(data.leaderboard);
+        if (data.leaderboard) renderLeaderboard(data.leaderboard, data.activeCourseId);
         break;
 
       case 'LOBBY_COUNTDOWN':
@@ -324,22 +326,66 @@
   }
 
   // ── Leaderboard ───────────────────────────────────────────
-  function renderLeaderboard(entries) {
-    if (!entries || entries.length === 0) {
+  function renderLeaderboard(data, activeCourseId) {
+    // data = array of { courseId, courseName, entries, playerRank }
+    if (!data || !Array.isArray(data) || data.length === 0) {
       lobbyLeaderboard.innerHTML = '<div class="lb-empty">No times recorded yet</div>';
       return;
     }
-    let html = '<div class="lb-title">TOP 10</div>';
-    entries.forEach((e, i) => {
-      const ms = e.timeMs;
-      const formatted = formatTime(ms);
-      html += `<div class="lb-entry">
-        <span class="lb-rank">#${i + 1}</span>
-        <span class="lb-name">${escapeHtml(e.username)}</span>
-        <span class="lb-time">${formatted}</span>
-      </div>`;
+
+    allLeaderboardData = data;
+    // Default to the active course tab, or keep current if valid
+    if (!activeLeaderboardTab || !data.find(function(d) { return d.courseId === activeLeaderboardTab; })) {
+      activeLeaderboardTab = activeCourseId || data[0].courseId;
+    }
+
+    renderLeaderboardTab();
+  }
+
+  function renderLeaderboardTab() {
+    var data = allLeaderboardData;
+    if (!data || data.length === 0) return;
+
+    // Build tab bar
+    var html = '<div class="lb-tabs">';
+    data.forEach(function(d) {
+      var activeClass = d.courseId === activeLeaderboardTab ? ' lb-tab-active' : '';
+      html += '<button class="lb-tab' + activeClass + '" data-lb-tab="' + escapeHtml(d.courseId) + '">' + escapeHtml(d.courseName) + '</button>';
     });
+    html += '</div>';
+
+    // Find selected tab data
+    var selected = data.find(function(d) { return d.courseId === activeLeaderboardTab; });
+    if (!selected) selected = data[0];
+
+    html += '<div class="lb-title">TOP 10 — ' + escapeHtml(selected.courseName) + '</div>';
+
+    if (!selected.entries || selected.entries.length === 0) {
+      html += '<div class="lb-empty">No times recorded yet</div>';
+    } else {
+      selected.entries.forEach(function(e, i) {
+        var formatted = formatTime(e.timeMs);
+        html += '<div class="lb-entry">' +
+          '<span class="lb-rank">#' + (i + 1) + '</span>' +
+          '<span class="lb-name">' + escapeHtml(e.username) + '</span>' +
+          '<span class="lb-time">' + formatted + '</span>' +
+          '</div>';
+      });
+    }
+
+    if (selected.playerRank) {
+      html += '<div class="lb-player-rank">Your rank: #' + selected.playerRank + '</div>';
+    }
+
     lobbyLeaderboard.innerHTML = html;
+
+    // Attach tab click listeners (SES-safe: addEventListener, no onclick)
+    lobbyLeaderboard.querySelectorAll('[data-lb-tab]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        activeLeaderboardTab = btn.getAttribute('data-lb-tab');
+        renderLeaderboardTab();
+      });
+    });
   }
 
   // ── Shop ──────────────────────────────────────────────────
@@ -713,6 +759,45 @@
   .lb-name { flex: 1; text-align: left; margin-left: 8px; }
   .lb-time { color: #00FFAA; font-variant-numeric: tabular-nums; }
   .lb-empty { color: rgba(255,255,255,0.4); font-size: 14px; }
+
+  .lb-tabs {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    pointer-events: auto;
+  }
+
+  .lb-tab {
+    padding: 4px 10px;
+    border: none;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    background: rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.7);
+    backdrop-filter: blur(4px);
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .lb-tab:hover { background: rgba(255,255,255,0.2); color: white; }
+
+  .lb-tab-active {
+    background: rgba(0,204,255,0.25);
+    color: #00CCFF;
+    box-shadow: 0 0 8px rgba(0,204,255,0.3);
+  }
+
+  .lb-player-rank {
+    font-size: 13px;
+    font-weight: 700;
+    color: #00FF88;
+    margin-top: 6px;
+    text-align: center;
+  }
 
   /* ── Buttons ───────────────────────────────────────────── */
   .lobby-buttons { display: flex; gap: 12px; justify-content: center; margin-top: 16px; pointer-events: auto; }
