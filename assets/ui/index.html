@@ -35,8 +35,8 @@
     <div id="lobby-status" class="lobby-status">Waiting for players...</div>
     <div id="lobby-leaderboard" class="leaderboard"></div>
     <div class="lobby-buttons">
-      <button id="btn-shop" class="btn" onclick="toggleShop()">SHOP</button>
-      <button id="btn-stats" class="btn btn-secondary" onclick="toggleStats()">STATS</button>
+      <button id="btn-shop" class="btn">SHOP</button>
+      <button id="btn-stats" class="btn btn-secondary">STATS</button>
     </div>
   </div>
 
@@ -61,14 +61,14 @@
     <h2 class="title">SHOP</h2>
     <div id="shop-coins" class="shop-coins">Coins: 0</div>
     <div id="shop-items" class="shop-items"></div>
-    <button class="btn btn-close" onclick="toggleShop()">CLOSE</button>
+    <button id="btn-shop-close" class="btn btn-close">CLOSE</button>
   </div>
 
   <!-- Stats panel -->
   <div id="stats-panel" class="panel hidden">
     <h2 class="title">YOUR STATS</h2>
     <div id="stats-content" class="stats-content"></div>
-    <button class="btn btn-close" onclick="toggleStats()">CLOSE</button>
+    <button id="btn-stats-close" class="btn btn-close">CLOSE</button>
   </div>
 </div>
 
@@ -369,11 +369,19 @@
         <div class="shop-item-name">${escapeHtml(c.name)}</div>
         <div class="shop-item-desc">${escapeHtml(c.description)}</div>
         <div class="shop-item-price">${owned ? (equipped ? 'EQUIPPED' : 'OWNED') : `${escapeHtml(c.price)} coins`}</div>
-        ${!owned ? `<button class="btn btn-buy" onclick="buyCosmetic('${escapeHtml(c.id)}')">BUY</button>` : ''}
-        ${owned && !equipped ? `<button class="btn btn-equip" onclick="equipCosmetic('${escapeHtml(c.id)}')">EQUIP</button>` : ''}
+        ${!owned ? `<button class="btn btn-buy" data-cosmetic-buy="${escapeHtml(c.id)}">BUY</button>` : ''}
+        ${owned && !equipped ? `<button class="btn btn-equip" data-cosmetic-equip="${escapeHtml(c.id)}">EQUIP</button>` : ''}
       </div>`;
     });
     shopItems.innerHTML = html;
+
+    // Attach buy/equip listeners
+    shopItems.querySelectorAll('[data-cosmetic-buy]').forEach(btn => {
+      btn.addEventListener('click', () => buyCosmetic(btn.getAttribute('data-cosmetic-buy')));
+    });
+    shopItems.querySelectorAll('[data-cosmetic-equip]').forEach(btn => {
+      btn.addEventListener('click', () => equipCosmetic(btn.getAttribute('data-cosmetic-equip')));
+    });
   }
 
   function buyCosmetic(id) {
@@ -456,6 +464,12 @@
     el.classList.add(className);
     setTimeout(() => el.classList.remove(className), 500);
   }
+
+  // ── Button event listeners ──────────────────────────────────
+  document.getElementById('btn-shop').addEventListener('click', () => toggleShop());
+  document.getElementById('btn-stats').addEventListener('click', () => toggleStats());
+  document.getElementById('btn-shop-close').addEventListener('click', () => toggleShop());
+  document.getElementById('btn-stats-close').addEventListener('click', () => toggleStats());
 
   // ── Mobile controls ───────────────────────────────────────
   const mobileBlinkButton = document.getElementById('mobile-blink-button');
@@ -701,7 +715,7 @@
   .lb-empty { color: rgba(255,255,255,0.4); font-size: 14px; }
 
   /* ── Buttons ───────────────────────────────────────────── */
-  .lobby-buttons { display: flex; gap: 12px; justify-content: center; margin-top: 16px; }
+  .lobby-buttons { display: flex; gap: 12px; justify-content: center; margin-top: 16px; pointer-events: auto; }
 
   .btn {
     padding: 10px 24px;
