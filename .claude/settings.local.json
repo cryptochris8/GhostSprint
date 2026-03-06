@@ -15,11 +15,41 @@
       "Bash(git fetch:*)",
       "Bash(git pull:*)",
       "Bash(netstat:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "mcp__desktop-commander__get_file_info",
+      "mcp__desktop-commander__start_process",
+      "mcp__desktop-commander__read_process_output",
+      "Bash(python3:*)",
+      "mcp__desktop-commander__start_search",
+      "mcp__desktop-commander__get_more_search_results",
+      "Bash(grep:*)",
+      "Bash(npm install:*)",
+      "Bash(npx vitest:*)",
+      "mcp__desktop-commander__interact_with_process",
+      "WebFetch(domain:blog.hytopia.com)",
+      "Bash(npm ls:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "WebFetch(domain:hytopia.com)",
+      "Bash(gh repo list:*)",
+      "mcp__github__search_repositories",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:web3dev1337.github.io)",
+      "Bash(dir:*)",
+      "Bash(npm run package:*)",
+      "Bash(unzip:*)",
+      "WebFetch(domain:docs.hytopia.com)",
+      "Bash(node -e:*)",
+      "Bash(npm view:*)",
+      "Bash(npm update:*)",
+      "Bash(npm run upgrade-assets-library:*)",
+      "Bash(ls -lah \"C:\\\\Users\\\\chris\\\\Hytopia-games\\\\GhostSprint\\\\assets\\\\models\\\\players\"\" 2>/dev/null || echo \"Directory not found \")",
+      "Bash(iconv:*)",
+      "Bash(gh search:*)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "hytopia-mcp"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }
